@@ -1,0 +1,52 @@
+import { findTemplateForPlan } from "./catalog";
+import { mapSubscription } from "./mutate";
+import type { LiveAccount } from "./openaiLogin";
+import { attachDetectedPlan } from "./org";
+import { validReading } from "./validate";
+import type { AppState, Subscription, UsageReading, WindowKind } from "./types";
+
+export type ConnectProvider = "chatgpt" | "claude" | "opencode";
+const LABELS: Record<WindowKind, string> = { five_hour: "5-hour", weekly: "Weekly", monthly: "Monthly", pro_messages: "Pro messages" };
+
+export function createProviderAccount(provider: ConnectProvider, id: string, now: Date): Subscription {
+  const kinds: WindowKind[] = provider === "opencode" ? ["five_hour", "weekly", "monthly"] : ["five_hour", "weekly"];
+  return {
+    id, templateId: `detect-${provider}`, provider, plan: "", seat: null,
+    login: provider === "chatgpt" ? "ChatGPT account" : provider === "claude" ? "Claude account" : "OpenCode account",
+    notes: "Account details come from the provider. Session estimates, when available, use local assumptions.",
+    windows: kinds.map((kind) => ({ kind, label: LABELS[kind], usedPercent: 0, capacityWeight: 1, resetsAt: null, hint: "Use the reading and reset time shown by your provider." })),
+    lanes: [], bankedResets: 0, bankedResetExpiresAt: null, supportsBankedResets: false,
+    updatedAt: now.toISOString(), readingSource: "manual", readingsKnown: false,
+  };
+}
+
+export function applyLiveAccount(state: AppState, subscriptionId: string, account: LiveAccount, now: Date): AppState {
+  const seat = state.subscriptions.find((item) => item.id === subscriptionId);
+  if (!seat) return state;
+  const reading = { windows: account.windows, ...(account.bankedResets != null ? { bankedResets: account.bankedResets } : {}) };
+  if (account.windows.length && (!validReading(reading) || account.windows.some((window) => window.usedPercent == null))) return state;
+  const sameIdentity = (!account.email || account.email === seat.login) && (!account.accountId || account.accountId === seat.providerAccountId);
+  const plan = account.plan ?? (seat.readingSource === "live" && sameIdentity ? seat.plan : "");
+  const template = seat.provider === "opencode" ? findTemplateForPlan("opencode", "Go") : findTemplateForPlan(seat.provider, plan);
+  const next = mapSubscription(state, subscriptionId, (item) => ({
+    ...item, plan, readingSource: "live", readingsKnown: account.windows.length > 0, updatedAt: now.toISOString(), usageCheckedAt: now.toISOString(),
+    login: account.email || item.login,
+    ...(!sameIdentity ? { billing: null, workspaceId: null, browserDetails: undefined, browserSyncError: undefined } : {}),
+    notes: template?.notes ?? "The provider did not identify a supported plan. Reported usage is still shown; session estimates are unavailable.",
+    ...(account.windows.length ? {
+      windows: account.windows.map((window) => ({
+        kind: window.kind, label: LABELS[window.kind], usedPercent: window.usedPercent ?? 0,
+        capacityWeight: template?.windows.find((draft) => draft.kind === window.kind)?.capacityWeight ?? 1,
+        resetsAt: window.resetsAt ?? null, hint: "Reported by your provider.",
+        ...(window.status ? { status: window.status } : {}),
+      })),
+      lanes: template?.lanes.filter((lane) => account.windows.some((window) => lane.shares[window.kind] != null)).map((lane) => ({ ...lane, shares: { ...lane.shares } })) ?? [],
+    } : {}),
+    ...(account.bankedResets != null ? { bankedResets: account.bankedResets, supportsBankedResets: true } : {}),
+  }));
+  return attachDetectedPlan(next, subscriptionId, { template, workspaceName: account.workspaceName, role: account.role, accountId: account.accountId }, now);
+}
+
+export function applyGoReading(state: AppState, id: string, reading: UsageReading, now: Date): AppState {
+  return applyLiveAccount(state, id, { email: null, accountId: null, plan: null, role: null, workspaceName: null, windows: reading.windows, bankedResets: null }, now);
+}

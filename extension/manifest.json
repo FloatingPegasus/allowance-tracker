@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Allowance — ChatGPT account sync",
+  "version": "0.1.0",
+  "description": "Read ChatGPT subscription, invoice, member and seat details into your local Allowance tracker. No credentials leave ChatGPT.",
+  "permissions": ["scripting"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [{
+    "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+    "js": ["bridge.js"],
+    "run_at": "document_idle"
+  }]
+}
