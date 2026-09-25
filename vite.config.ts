@@ -3,16 +3,23 @@ import react from "@vitejs/plugin-react";
 import type { Plugin, ProxyOptions } from "vite";
 import { defineConfig } from "vitest/config";
 import { attachAuthRoutes } from "./server/authProxy.ts";
+import { createBillingRoutes } from "./server/billingBrowser.ts";
 
 function authApi(): Plugin {
   return {
     name: "allowance-auth",
     configureServer(server) {
       const cleanup = attachAuthRoutes(server.middlewares);
+      const billing = createBillingRoutes();
+      server.middlewares.use(billing.middleware);
+      server.httpServer?.once("close", billing.cleanup);
       server.httpServer?.once("close", cleanup);
     },
     configurePreviewServer(server) {
       const cleanup = attachAuthRoutes(server.middlewares);
+      const billing = createBillingRoutes();
+      server.middlewares.use(billing.middleware);
+      server.httpServer?.once("close", billing.cleanup);
       server.httpServer?.once("close", cleanup);
     },
   };

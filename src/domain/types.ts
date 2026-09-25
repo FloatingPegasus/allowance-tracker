@@ -1,4 +1,4 @@
-import type { BrowserDetails } from "./browserSync";
+import type { BrowserDetails } from "./billingRecords.ts";
 
 export type ProviderId = "codex" | "chatgpt" | "claude" | "opencode";
 
@@ -92,7 +92,7 @@ export interface Subscription {
   provider: ProviderId;
   plan: string;
   seat: string | null;
-  /** Email or label. The extension matches readings on this. Passwords are never stored. */
+  /** Email or account label. Passwords are never stored. */
   login: string;
   notes: string;
   windows: QuotaWindow[];
@@ -111,6 +111,7 @@ export interface Subscription {
   accountRole?: OrgRole | null;
   browserDetails?: BrowserDetails;
   browserSyncError?: { at: string; message: string };
+  billingError?: { at: string; message: string };
   /** Renewal for a personal plan. Workspace invoices live on the workspace. */
   billing?: BillingCycle | null;
 }
@@ -133,7 +134,7 @@ export interface WindowReading {
   status?: string;
 }
 
-/** What the future extension sends after it reads a provider usage bar. */
+/** Normalized provider usage. */
 export interface UsageReading {
   subscriptionId?: string;
   login?: string;

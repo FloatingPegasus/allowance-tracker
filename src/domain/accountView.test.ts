@@ -23,9 +23,9 @@ describe("account view", () => {
   });
   it("shows billing even when missing, and never presents legacy estimates as invoices", () => {
     const html = renderToStaticMarkup(createElement(BillingPanel, { subscription: { ...subscription, billing: { amount: 200, interval: "monthly", renewsAt: "2026-10-17", checkedAt: now.toISOString() } }, workspace: null }));
-    expect(html).toContain("Connect the browser");
-    expect(html).toContain("Connection required");
-    expect(html).toContain("Billing has not been fetched");
+    expect(html).toContain("Open billing page");
+    expect(html).not.toContain("Connection required");
+    expect(html).not.toContain("extension");
     expect(html).toContain("https://chatgpt.com/settings/billing");
     expect(html).not.toContain("200");
     expect(html).not.toContain("Oct 17");
@@ -39,15 +39,16 @@ describe("account view", () => {
     expect(html).not.toContain("aria-pressed");
     expect(html).not.toContain("admin@example.com");
   });
-  it("keeps the usage check time separate from edits and shows billing retry errors on the entry", () => {
+  it("keeps usage timestamps separate from edits and shows one-time billing actions on the entry", () => {
     const state = applyLiveAccount({ version: 1, subscriptions: [subscription], intent: "balanced", holdCodex: false }, "test", { email: "owner@example.test", accountId: "ws", plan: "Business", workspaceName: "Test team", role: "owner", windows: [], bankedResets: null }, now);
     const renamed = withLogin(state.subscriptions[0], "new label", new Date("2026-09-26T00:00:00Z"));
     expect(renamed.usageCheckedAt).toBe(now.toISOString());
-    const html = renderToStaticMarkup(createElement(BillingPanel, { subscription: { ...renamed, browserSyncError: { at: now.toISOString(), message: "Switch ChatGPT to the matching account." } }, workspace: null, onCheck: noop }));
-    expect(html).toContain("Check billing");
-    expect(html).toContain("Switch ChatGPT account");
+    const html = renderToStaticMarkup(createElement(BillingPanel, { subscription: { ...renamed, billingError: { at: now.toISOString(), message: "Sign in as the selected account." }, browserSyncError: { at: now.toISOString(), message: "Old extension error" } }, workspace: null, onStart: noop }));
+    expect(html).toContain("Fetch billing");
+    expect(html).toContain("temporary Chrome window");
     expect(html).toContain("Last attempt:");
-    expect(html).toContain("Switch ChatGPT to the matching account.");
-    expect(html).not.toContain("Billing checked");
+    expect(html).toContain("Sign in as the selected account.");
+    expect(html).not.toContain("Billing last checked");
+    expect(html).not.toContain("Old extension error");
   });
 });

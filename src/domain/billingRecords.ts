@@ -1,4 +1,4 @@
-import type { AppState } from "./types";
+import type { AppState } from "./types.ts";
 
 export interface SyncSection<T> { data: T | null; updatedAt: string | null; error: string | null }
 export interface BrowserBilling { active: boolean; interval: "monthly" | "annual" | null; currency: string | null; renewsAt: string | null; expiresAt: string | null; willRenew: boolean | null }
@@ -14,7 +14,8 @@ export interface BrowserDetails {
   invoices: SyncSection<BrowserInvoice[]>;
   directory: SyncSection<{ total: number; members: BrowserMember[] }>;
 }
-export interface BrowserTarget { accountId: string; email: string; workspace: boolean }
+
+export interface BillingTarget { accountId: string; email: string; workspace: boolean }
 
 const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const keys = (v: Record<string, unknown>, names: string[]) => Object.keys(v).every((key) => names.includes(key)) && names.every((key) => Object.hasOwn(v, key));
@@ -33,25 +34,25 @@ export function isBrowserDetails(v: unknown): v is BrowserDetails {
   return rec(v) && keys(v, ["accountId", "email", "observedAt", "billing", "seats", "invoices", "directory"]) && text(v.accountId) && text(v.email) && date(v.observedAt) && section(v.billing, billing) && section(v.seats, seats) && section(v.invoices, invoices) && section(v.directory, directory);
 }
 
-export function mergeBrowserDetails(previous: BrowserDetails | undefined, next: BrowserDetails): BrowserDetails {
+export function mergeBillingRecords(previous: BrowserDetails | undefined, next: BrowserDetails): BrowserDetails {
   if (!previous || previous.accountId !== next.accountId || previous.email.toLowerCase() !== next.email.toLowerCase()) return next;
   const merge = <T,>(old: SyncSection<T>, fresh: SyncSection<T>): SyncSection<T> => fresh.data === null && fresh.error ? { ...old, error: fresh.error } : fresh;
   return { ...next, billing: merge(previous.billing, next.billing), seats: merge(previous.seats, next.seats), invoices: merge(previous.invoices, next.invoices), directory: merge(previous.directory, next.directory) };
 }
 
-export function applyBrowserDetails(state: AppState, value: unknown): AppState {
+export function applyBillingRecord(state: AppState, value: unknown): AppState {
   if (!isBrowserDetails(value)) return state;
   const matches = state.subscriptions.filter((item) => ["codex", "chatgpt"].includes(item.provider) && item.providerAccountId === value.accountId && item.login.toLowerCase() === value.email.toLowerCase());
   if (matches.length !== 1) return state;
   const target = matches[0];
   if (target.browserDetails && Date.parse(target.browserDetails.observedAt) > Date.parse(value.observedAt)) return state;
-  return { ...state, subscriptions: state.subscriptions.map((item) => item.id === target.id ? { ...item, browserDetails: mergeBrowserDetails(item.browserDetails, value), browserSyncError: undefined } : item) };
+  return { ...state, subscriptions: state.subscriptions.map((item) => item.id === target.id ? { ...item, browserDetails: mergeBillingRecords(item.browserDetails, value), billingError: undefined } : item) };
 }
 
-export function applyBrowserFailure(state: AppState, target: BrowserTarget, message: string, now: Date): AppState {
+export function applyBillingFailure(state: AppState, target: BillingTarget, message: string, now: Date): AppState {
   const matches = state.subscriptions.filter((item) => ["codex", "chatgpt"].includes(item.provider) && item.providerAccountId === target.accountId && item.login.toLowerCase() === target.email.toLowerCase());
   if (matches.length !== 1 || !message.trim()) return state;
-  return { ...state, subscriptions: state.subscriptions.map((item) => item.id === matches[0].id ? { ...item, browserSyncError: { at: now.toISOString(), message: message.slice(0, 500) } } : item) };
+  return { ...state, subscriptions: state.subscriptions.map((item) => item.id === matches[0].id ? { ...item, billingError: { at: now.toISOString(), message: message.slice(0, 500) } } : item) };
 }
 
 export function invoiceMoney(invoice: BrowserInvoice): string {

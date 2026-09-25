@@ -1,9 +1,9 @@
-import { BrowserConnection, type BrowserConnectionHandle } from "./components/BrowserConnection";
-import { applyBrowserDetails, applyBrowserFailure, isBrowserDetails } from "./domain/browserSync";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddAccount } from "./components/AddAccount";
 import { AccountCard } from "./components/AccountCard";
 import { Hero } from "./components/Hero";
+import { BillingConnectionError, closeBillingBrowser, openBillingBrowser, readBillingBrowser } from "./domain/billingClient";
+import { applyBillingFailure, applyBillingRecord, type BillingTarget } from "./domain/billingRecords";
 import { beginLogin, clearPending, fetchLiveAccount, finishLogin, loadPending, matchesCallback, refreshLogin } from "./domain/appLoginClient";
 import { applyLiveAccount, applyGoReading, createProviderAccount } from "./domain/applyLogin";
 import type { ConnectProvider } from "./domain/applyLogin";
@@ -13,11 +13,12 @@ import { applyBankedReset, mapSubscription, withBanked, withLogin, withWindow } 
 import { attachKnownPlans } from "./domain/org";
 import { fetchGoUsage, maskKey } from "./domain/opencode";
 import { decide } from "./domain/present";
-import { applyReading, isUsageReading } from "./domain/reading";
 import { clearSessions, loadSessions, saveSessions } from "./domain/sessions";
 import type { AppLogin, AppLoginProvider } from "./domain/sessions";
 import { clearState, loadState, parseState, saveState, storageProblem } from "./domain/storage";
-import type { AppState, Intent, ProviderId, WindowKind } from "./domain/types";
+import type { AppState, Intent, ProviderId, Subscription, WindowKind } from "./domain/types";
+
+interface BillingRequest { subscriptionId: string; target: BillingTarget; connectionId: string | null; stage: "starting" | "login" | "reading" }
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => loadState());
@@ -38,8 +39,8 @@ export default function App() {
   const syncSessionRef = useRef<(id: string, login: AppLogin, announce: boolean) => Promise<void>>(async () => undefined);
   const [showExamples, setShowExamples] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const browserConnection = useRef<BrowserConnectionHandle>(null);
-  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingRequest, setBillingRequest] = useState<BillingRequest | null>(null);
+  const billingRef = useRef<BillingRequest | null>(null);
   const visibleAccounts = state.subscriptions.filter((item) => showExamples || item.readingSource !== "seed");
   const decision = useMemo(() => decide({ ...state, subscriptions: state.subscriptions.filter((item) => showExamples || item.readingSource !== "seed") }, now), [state, now, showExamples]);
 
@@ -188,27 +189,72 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    function onReading(event: Event) {
-      if (!(event instanceof CustomEvent) || !isUsageReading(event.detail)) {
-        setNotice("That usage reading could not be read.");
-        return;
-      }
-      const result = applyReading(state, event.detail, new Date());
-      if (!result.matched) {
-        setNotice("No seat matched that reading. Use the login on the subscription.");
-        return;
-      }
-      setState(result.state);
-      setNotice(`Updated ${result.login} from a usage reading.`);
-    }
-    window.addEventListener("allowance:reading", onReading);
-    return () => window.removeEventListener("allowance:reading", onReading);
-  }, [state]);
-
   function patch(id: string, update: Parameters<typeof mapSubscription>[2]) {
     setState((current) => mapSubscription(current, id, update));
   }
+
+  function billingFailure(request: BillingRequest, error: unknown) {
+    const message = error instanceof Error ? error.message : "Billing could not be read.";
+    setState((current) => applyBillingFailure(current, request.target, message, new Date()));
+  }
+
+  async function startBilling(subscription: Subscription) {
+    if (billingRef.current || !subscription.providerAccountId || sessionsRef.current[subscription.id]?.provider !== "openai") return;
+    const request: BillingRequest = { subscriptionId: subscription.id, target: { accountId: subscription.providerAccountId, email: subscription.login, workspace: !!subscription.workspaceId }, connectionId: null, stage: "starting" };
+    billingRef.current = request;
+    setBillingRequest({ ...request });
+    patch(subscription.id, (item) => ({ ...item, billingError: undefined }));
+    try {
+      request.connectionId = await openBillingBrowser(request.target);
+      if (billingRef.current !== request) { await closeBillingBrowser(request.connectionId).catch(() => undefined); return; }
+      request.stage = "login";
+      setBillingRequest({ ...request });
+    } catch (error) {
+      if (billingRef.current !== request) return;
+      billingFailure(request, error);
+      billingRef.current = null;
+      setBillingRequest(null);
+    }
+  }
+
+  async function finishBilling() {
+    const request = billingRef.current;
+    if (!request?.connectionId || request.stage !== "login") return;
+    request.stage = "reading";
+    setBillingRequest({ ...request });
+    try {
+      const details = await readBillingBrowser(request.connectionId);
+      if (billingRef.current !== request) return;
+      setState((current) => sessionsRef.current[request.subscriptionId] ? applyBillingRecord(current, details) : current);
+      billingRef.current = null;
+      setBillingRequest(null);
+    } catch (error) {
+      if (billingRef.current !== request) return;
+      billingFailure(request, error);
+      if (error instanceof BillingConnectionError && error.ended) {
+        void closeBillingBrowser(request.connectionId).catch(() => undefined);
+        billingRef.current = null;
+        setBillingRequest(null);
+      } else {
+        request.stage = "login";
+        setBillingRequest({ ...request });
+      }
+    }
+  }
+
+  function cancelBilling(subscriptionId?: string) {
+    const request = billingRef.current;
+    if (!request || (subscriptionId && subscriptionId !== request.subscriptionId)) return;
+    billingRef.current = null;
+    setBillingRequest(null);
+    if (request.connectionId) void closeBillingBrowser(request.connectionId).catch(() => setNotice("Close the temporary billing window. The connector could not close it; its session expires after eight minutes."));
+  }
+
+  useEffect(() => () => {
+    const id = billingRef.current?.connectionId;
+    billingRef.current = null;
+    if (id) void closeBillingBrowser(id).catch(() => undefined);
+  }, []);
 
   function loginProvider(provider: ProviderId): AppLoginProvider | null {
     if (provider === "claude") return "claude";
@@ -253,6 +299,7 @@ export default function App() {
         return;
       }
       if (!window.confirm("Replace the tracked accounts with this export? Existing provider connections will be disconnected.")) return;
+      cancelBilling();
       keysRef.current = {};
       sessionsRef.current = {};
       setKeys({}); setSessions({}); saveKeys({}); saveSessions({});
@@ -304,6 +351,7 @@ export default function App() {
                 type="button"
                 className="solid"
                 onClick={() => {
+                  cancelBilling();
                   try { clearState(); clearKeys(); clearSessions(); } catch { /* Session state still resets when storage is blocked. */ }
                   setCanPersist(true);
                   keysRef.current = {};
@@ -347,21 +395,6 @@ export default function App() {
         onHold={(holdCodex) => setState((current) => ({ ...current, holdCodex }))}
       />
       </details>}
-      <BrowserConnection
-        ref={browserConnection}
-        onBusy={setBillingBusy}
-        enabled={state.browserSyncEnabled === true}
-        accounts={state.subscriptions.filter((item) => (item.provider === "chatgpt" || item.provider === "codex") && item.providerAccountId && sessions[item.id]).map((item) => ({ accountId: item.providerAccountId!, email: item.login, workspace: !!item.workspaceId }))}
-        onEnabled={(enabled) => setState((current) => ({ ...current, browserSyncEnabled: enabled }))}
-        onFailure={(target, message) => setState((current) => current.subscriptions.some((item) => item.providerAccountId === target.accountId && item.login.toLowerCase() === target.email.toLowerCase() && sessionsRef.current[item.id]) ? applyBrowserFailure(current, target, message, new Date()) : current)}
-        onResult={(value) => {
-          if (!isBrowserDetails(value)) { setNotice("The browser returned unreadable account details. Saved readings were preserved."); return; }
-          setState((current) => {
-            const connected = current.subscriptions.some((item) => item.providerAccountId === value.accountId && item.login.toLowerCase() === value.email.toLowerCase() && sessionsRef.current[item.id]);
-            return connected ? applyBrowserDetails(current, value) : current;
-          });
-        }}
-      />
       <section className="ledger" aria-label="Subscriptions">
         <div className="ledger-head">
           <h2>Your accounts</h2>
@@ -372,8 +405,13 @@ export default function App() {
             key={subscription.id}
             subscription={subscription}
             now={now}
-            billingBusy={billingBusy}
-            onCheckBilling={subscription.providerAccountId && sessions[subscription.id]?.provider === "openai" ? () => browserConnection.current?.syncAccount({ accountId: subscription.providerAccountId!, email: subscription.login, workspace: !!subscription.workspaceId }) : undefined}
+            billingActions={{
+              busy: !!billingRequest,
+              stage: billingRequest?.subscriptionId === subscription.id ? billingRequest.stage : undefined,
+              onStart: subscription.providerAccountId && sessions[subscription.id]?.provider === "openai" ? () => void startBilling(subscription) : undefined,
+              onRead: () => void finishBilling(),
+              onCancel: () => cancelBilling(subscription.id),
+            }}
             recommended={decision.pick?.subscription.id === subscription.id}
             onLogin={(login) => patch(subscription.id, (item) => withLogin(item, login, new Date()))}
             onWindow={(kind: WindowKind, windowPatch) =>
@@ -382,6 +420,7 @@ export default function App() {
             onBanked={(count, expiresAt) => patch(subscription.id, (item) => withBanked(item, count, expiresAt, new Date()))}
             onApplyReset={() => patch(subscription.id, (item) => applyBankedReset(item, new Date()))}
             onRemove={() => {
+              cancelBilling(subscription.id);
               setState((current) => ({
                 ...current,
                 subscriptions: current.subscriptions.filter((item) => item.id !== subscription.id),
@@ -468,6 +507,7 @@ export default function App() {
               if (login) void syncSession(subscription.id, login, true);
             }}
             onSignOut={() => {
+              cancelBilling(subscription.id);
               setSessions((current) => {
                 const next = { ...current };
                 delete next[subscription.id];

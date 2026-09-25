@@ -10,15 +10,17 @@ Exports exclude provider sessions and keys, but contain account identifiers, usa
 
 ## Browser connection
 
-The optional extension accepts messages only from the top-level local tracker at ports 5173 and 4173. It makes read-only requests in a signed-in ChatGPT tab. It returns validated account fields and omits tokens, payment methods, and private invoice URLs. Account ID and email must match. Repeated requests are throttled while the extension worker is running.
+The on-demand connector opens an isolated temporary Chrome session for one selected account. Its local routes require a loopback Host and same-origin JSON. An opaque connection ID binds each read to the original account and origin. Only one connection/read runs at a time, and cancellation or expiry discards late results. The window closes after a read, cancellation, or eight minutes; the app does not retain a browser profile or export cookies.
 
-This is an unofficial integration, not an approved OpenAI API. Chrome installation or store approval would not establish OpenAI approval. [Individual terms](https://openai.com/policies/row-terms-of-use/) restrict automated extraction; the [Services Agreement](https://openai.com/policies/services-agreement/) also restricts extraction except as permitted through the service. No guarantee against account suspension is made. Sync is opt-in and can be paused.
+The reader makes GET requests only to ChatGPT, rejects redirects, verifies email and workspace membership, and returns a strict allowlist of tracking fields. Tokens, payment methods and private invoice URLs are excluded. It never changes billing, seats or membership. No extension is installed or required.
+
+This is an unofficial integration, not an approved OpenAI API. [Individual terms](https://openai.com/policies/row-terms-of-use/) restrict automated extraction; the [Services Agreement](https://openai.com/policies/services-agreement/) also restricts extraction except as permitted through the service. No guarantee against account suspension is made. Billing runs only when requested and respects access failures and browser challenges.
 
 ## Before hosting
 
 Do not expose the Vite dev or preview server publicly. A hosted version needs a separate design for authentication, server-side authorization, session handling, and storage. A hidden login screen or private source repository is not an authorization boundary.
 
-The intended first deployment is owner-only, with credentials in server-side secret storage and database requests authorized against the signed-in owner. Keep provider browser credentials out of the hosted database. Hosting, retention, backups, deletion, and the extension's exact allowed production origin must be settled before enabling cloud sync.
+The intended first deployment is owner-only, with credentials in server-side secret storage and database requests authorized against the signed-in owner. Keep provider browser credentials out of the hosted database. Hosting, retention, backups, deletion, and any communication with a local connector must be settled before enabling cloud sync. The current loopback API does not accept requests from a hosted site.
 
 ## Reporting
 

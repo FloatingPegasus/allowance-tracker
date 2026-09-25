@@ -1,4 +1,4 @@
-import { isBrowserDetails } from "./browserSync";
+import { isBrowserDetails } from "./billingRecords";
 import type { Subscription, Workspace, UsageReading } from "./types";
 
 export const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -20,6 +20,7 @@ export function isSubscription(v: unknown): v is Subscription {
   if (!num(v.bankedResets) || !nullableDate(v.bankedResetExpiresAt) || typeof v.supportsBankedResets !== "boolean" || typeof v.readingsKnown !== "boolean" || !date(v.updatedAt) || !member(["seed", "manual", "extension", "live"], v.readingSource)) return false;
   if (v.browserDetails !== undefined && !isBrowserDetails(v.browserDetails)) return false;
   if (v.usageCheckedAt !== undefined && !date(v.usageCheckedAt)) return false;
+  if (v.billingError !== undefined && (!record(v.billingError) || !date(v.billingError.at) || !str(v.billingError.message) || !v.billingError.message || v.billingError.message.length > 500)) return false;
   if (v.browserSyncError !== undefined && (!record(v.browserSyncError) || !date(v.browserSyncError.at) || !str(v.browserSyncError.message) || !v.browserSyncError.message || v.browserSyncError.message.length > 500)) return false;
   if (v.billing != null && !isBilling(v.billing)) return false;
   if (v.accountRole != null && !member(roles, v.accountRole)) return false;

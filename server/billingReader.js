@@ -1,5 +1,4 @@
-// This function is self-contained because Chrome runs it in an isolated ChatGPT tab.
-// Only normalized tracking data crosses back to the extension; credentials never do.
+// Runs inside the temporary provider page. Only normalized account fields leave it.
 export async function readAccount(target, fetcher = fetch) {
   const observedAt = new Date().toISOString();
   const deadline = Date.now() + 45000;
@@ -20,7 +19,7 @@ export async function readAccount(target, fetcher = fetch) {
     if (remaining <= 0) throw new Error("Account sync timed out. Try again.");
     let response;
     try { response = await fetcher(`https://chatgpt.com${path}`, { method: "GET", credentials: "include", cache: "no-store", redirect: "error", headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(Math.min(15000, remaining)) }); }
-    catch { throw new Error("ChatGPT could not be reached. Keep its signed-in tab open and retry."); }
+    catch { throw new Error("ChatGPT could not be reached. Keep the billing window open and retry."); }
     if (!response.ok) throw new Error(response.headers.get("cf-mitigated") === "challenge" ? "ChatGPT requires an interactive browser check. Open ChatGPT and retry after completing it." : response.status === 401 ? "Sign in to ChatGPT in this browser again." : response.status === 403 ? "ChatGPT denied access to these details for this login." : `ChatGPT could not return these details (${response.status}).`);
     try { return await response.json(); } catch { throw new Error("ChatGPT returned an unreadable response."); }
   };
@@ -28,10 +27,16 @@ export async function readAccount(target, fetcher = fetch) {
   let session;
   try { session = await request("/api/auth/session"); }
   catch (error) { return { error: error.message }; }
-  if (!record(session) || typeof session.accessToken !== "string" || !session.accessToken || !record(session.user) || typeof session.user.email !== "string") return { error: "Sign in to ChatGPT in this browser to connect account details." };
+  if (!record(session) || typeof session.accessToken !== "string" || !session.accessToken || !record(session.user) || typeof session.user.email !== "string") return { error: "Sign in to ChatGPT in the billing window, then retry." };
   if (session.user.email.trim().toLowerCase() !== target.email.trim().toLowerCase()) return { mismatch: true };
   const headers = { Authorization: `Bearer ${session.accessToken}`, "ChatGPT-Account-Id": target.accountId };
   const id = encodeURIComponent(target.accountId);
+  if (target.workspace) {
+    try {
+      const accounts = await request("/backend-api/accounts/check/v4-2023-04-27", headers);
+      if (!record(accounts) || !record(accounts.accounts) || !Object.hasOwn(accounts.accounts, target.accountId)) return { error: "This login does not report the selected workspace. Switch to an account with access, then retry." };
+    } catch (error) { return { error: error.message }; }
+  }
   const subscription = target.workspace ? request(`/backend-api/subscriptions?account_id=${id}`, headers) : request("/backend-api/accounts/check/v4-2023-04-27", headers).then((body) => {
     if (!record(body) || !record(body.accounts) || !Object.hasOwn(body.accounts, target.accountId) || !record(body.accounts[target.accountId])) throw new Error("ChatGPT did not return billing for this account. No other account's data was used.");
     return body.accounts[target.accountId];

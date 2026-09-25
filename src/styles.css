@@ -555,12 +555,11 @@ button:hover:not(:disabled) { border-color: var(--muted); }
 .card-id .hint { overflow-wrap: anywhere; }
 
 
-.browser-connection { background: var(--raised); border: 1px solid var(--line); padding: 1rem; margin: 1rem 0; }
-.browser-connection h2 { font-size: 1rem; margin: 0; }
 .member-name { display: block; font-weight: 600; }
-.last-attempt { display: block; }
 
 .add-account { margin: 1rem 0; font-size: .9rem; }
 .add-account .connect { margin: 1rem 0; }
-.browser-connection a { color: var(--brass); }
-.browser-connection li + li { margin-top: .4rem; }
+
+.account-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.account-heading button { font-size: .85rem; }
+.last-attempt { display: block; }

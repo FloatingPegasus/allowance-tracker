@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BillingPanel } from "./BillingPanel";
+import { BillingPanel, type BillingActions } from "./BillingPanel";
 import { ProviderLogin } from "./ProviderLogin";
 import { outlook } from "../domain/engine";
 import { formatSessions, meterTone, qualityLabel, remainingLabel, remainingPercent, seatLine } from "../domain/format";
@@ -25,8 +25,7 @@ interface Props {
   loginProvider: AppLoginProvider | null;
   signedIn: AppLogin | null;
   authError: string | null;
-  onCheckBilling?: () => void;
-  billingBusy?: boolean;
+  billingActions?: BillingActions;
   onSignIn: () => void;
   onRefreshLogin: () => void;
   onSignOut: () => void;
@@ -35,7 +34,7 @@ interface Props {
 const SOURCE: Record<ReadingSource, string> = {
   seed: "Demo",
   manual: "Manual",
-  extension: "Extension",
+  extension: "Saved reading",
   live: "Live",
 };
 
@@ -61,11 +60,11 @@ export function AccountCard({
   onSignIn,
   onRefreshLogin,
   onSignOut,
-  onCheckBilling,
-  billingBusy,
+  billingActions,
 }: Props) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [showBilling, setShowBilling] = useState(false);
   const lanes = outlook(subscription);
   const agentLanes = lanes.filter((item) => item.lane.surface === "agent");
   const chatLanes = lanes.filter((item) => item.lane.surface === "chat");
@@ -78,10 +77,10 @@ export function AccountCard({
     >
       <div className="card-id">
         {recommended && <p className="kicker">Suggested</p>}
-        <h2>
+        <div className="account-heading"><h2>
           <i className={`mark mark-${subscription.provider}`} aria-hidden="true" />
           {seatLine(subscription.provider, "", null)}
-        </h2>
+        </h2><button type="button" aria-expanded={showBilling} aria-controls={`billing-${subscription.id}`} onClick={() => setShowBilling(!showBilling)}>Billing</button></div>
         {subscription.plan && <p className="account-plan">{subscription.plan}{subscription.seat ? ` · ${subscription.seat}` : ""}</p>}
         {loginProvider && (
           <ProviderLogin
@@ -125,12 +124,11 @@ export function AccountCard({
           ))}
         </div>
         {subscription.usageCheckedAt && <p className="hint">Usage checked <time dateTime={subscription.usageCheckedAt}>{new Date(subscription.usageCheckedAt).toLocaleString()}</time></p>}
-        <BillingPanel
+        {showBilling && <div id={`billing-${subscription.id}`}><BillingPanel
           subscription={subscription}
           workspace={workspace}
-          onCheck={onCheckBilling}
-          busy={billingBusy}
-        />
+          {...billingActions}
+        /></div>}
         {subscription.readingsKnown && lanes.length > 0 && <details className="lane-details"><summary>Estimated sessions by model</summary><ul className="lanes">
           {agentLanes.map(({ lane, view }) => (
             <li key={lane.id}>

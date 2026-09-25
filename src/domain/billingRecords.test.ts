@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { readAccount } from "../../extension/reader.js";
-import { applyBrowserDetails, applyBrowserFailure, invoiceMoney, isBrowserDetails, mergeBrowserDetails } from "./browserSync";
+import { readAccount } from "../../server/billingReader.js";
+import { applyBillingRecord, applyBillingFailure, invoiceMoney, isBrowserDetails, mergeBillingRecords } from "./billingRecords";
 import { createProviderAccount } from "./applyLogin";
 import { parseState } from "./storage";
-import type { BrowserDetails, BrowserTarget } from "./browserSync";
+import type { BrowserDetails, BillingTarget } from "./billingRecords";
 import type { AppState } from "./types";
-const target: BrowserTarget = { accountId: "workspace-one", email: "owner@example.test", workspace: true };
+const target: BillingTarget = { accountId: "workspace-one", email: "owner@example.test", workspace: true };
 const subscription = { entitlement: { has_active_subscription: true, renews_at: "2026-10-01T00:00:00Z", billing_period: "monthly", billing_currency: "inr" }, will_renew: true, seat_capacity: [{ type: "default", paid: 2, available: 1 }, { type: "prolite", paid: 1, available: 0 }], assigned: { default: 1, prolite: 1 } };
 const member = (id: string) => ({ id, name: `Person ${id}`, email: `${id}@example.test`, role: "standard-user", seat_type: "default" });
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
@@ -25,7 +25,7 @@ async function snapshot(): Promise<BrowserDetails> {
   return result;
 }
 
-describe("automatic browser account sync", () => {
+describe("one-time billing reader", () => {
   it("reads actual renewals, invoices, purchased seats and assigned member types without exporting credentials", async () => {
     const request = fetcher();
     const result = await readAccount(target, request as typeof fetch);
@@ -64,7 +64,7 @@ describe("automatic browser account sync", () => {
     expect(next.billing.data?.active).toBe(true);
     expect(next.directory.error).toContain("denied");
     const old = await snapshot();
-    const merged = mergeBrowserDetails(old, next);
+    const merged = mergeBillingRecords(old, next);
     expect(merged.directory.data).toEqual(old.directory.data);
     expect(merged.directory.error).toContain("denied");
     expect(isBrowserDetails(merged)).toBe(true);
@@ -78,12 +78,12 @@ describe("automatic browser account sync", () => {
   it("requires an unambiguous provider ID and login, rejects extra credential fields and round trips exports", async () => {
     const value = await snapshot();
     const state: AppState = { version: 1, holdCodex: true, intent: "balanced", subscriptions: [{ ...createProviderAccount("chatgpt", "one", new Date()), login: target.email, providerAccountId: target.accountId }] };
-    expect(applyBrowserDetails(state, { ...value, accountId: "other" })).toBe(state);
-    expect(applyBrowserDetails(state, { ...value, email: "other@example.test" })).toBe(state);
-    expect(applyBrowserDetails(state, { ...value, accessToken: "bad" })).toBe(state);
-    const applied = applyBrowserDetails(state, value);
+    expect(applyBillingRecord(state, { ...value, accountId: "other" })).toBe(state);
+    expect(applyBillingRecord(state, { ...value, email: "other@example.test" })).toBe(state);
+    expect(applyBillingRecord(state, { ...value, accessToken: "bad" })).toBe(state);
+    const applied = applyBillingRecord(state, value);
     expect(parseState(JSON.stringify(applied))).toEqual(applied);
-    expect(applyBrowserDetails({ ...state, subscriptions: [...state.subscriptions, { ...state.subscriptions[0], id: "duplicate" }] }, value).subscriptions.every((item) => !item.browserDetails)).toBe(true);
+    expect(applyBillingRecord({ ...state, subscriptions: [...state.subscriptions, { ...state.subscriptions[0], id: "duplicate" }] }, value).subscriptions.every((item) => !item.browserDetails)).toBe(true);
     expect(isBrowserDetails({ ...value, directory: { ...value.directory, data: { total: 100, members: [] } } })).toBe(false);
   });
   it("does not request a personal account's member directory", async () => {
@@ -113,15 +113,15 @@ describe("automatic browser account sync", () => {
       { ...createProviderAccount("chatgpt", "two", new Date()), login: "other@example.test", providerAccountId: "personal-two" },
     ] };
     const now = new Date();
-    const next = applyBrowserFailure(state, target, "Switch to the matching ChatGPT account.", now);
+    const next = applyBillingFailure(state, target, "Switch to the matching ChatGPT account.", now);
     expect(next.subscriptions[0].browserDetails).toEqual(details);
-    expect(next.subscriptions[0].browserSyncError?.at).toBe(now.toISOString());
+    expect(next.subscriptions[0].billingError?.at).toBe(now.toISOString());
     expect(next.subscriptions[1]).toBe(state.subscriptions[1]);
     expect(parseState(JSON.stringify(next))).toEqual(next);
-    expect(applyBrowserFailure(state, { ...target, email: "other@example.test" }, "wrong", now)).toBe(state);
-    const fresh = applyBrowserDetails(next, { ...details, observedAt: now.toISOString() });
-    expect(fresh.subscriptions[0].browserSyncError).toBeUndefined();
-    const malformed = { ...next, subscriptions: [{ ...next.subscriptions[0], browserSyncError: { at: "not a date", message: "failed" } }] };
+    expect(applyBillingFailure(state, { ...target, email: "other@example.test" }, "wrong", now)).toBe(state);
+    const fresh = applyBillingRecord(next, { ...details, observedAt: now.toISOString() });
+    expect(fresh.subscriptions[0].billingError).toBeUndefined();
+    const malformed = { ...next, subscriptions: [{ ...next.subscriptions[0], billingError: { at: "not a date", message: "failed" } }] };
     expect(parseState(JSON.stringify(malformed))).toBeNull();
   });
 });

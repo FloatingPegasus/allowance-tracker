@@ -23,8 +23,8 @@ Export creates a JSON backup of accounts and readings, without keys or provider 
 
 - Plan names, prices, relative capacities and session costs are editable code presets in `src/domain/catalog.ts`, not verified current provider entitlements. Recommendations are estimates, not guarantees.
 - Usage meters show remaining allowance, while manual reading inputs accept usage consumed. ChatGPT readings come from the Codex usage endpoint; they are not a complete inventory of ChatGPT model limits.
-- ChatGPT billing and workspace data sync automatically through the optional Chrome connection. It reads subscription status, renewal dates, the four most recent transactions' invoice summaries, complete member lists (up to 1,000 members), and purchased/assigned/available seats. These come from ChatGPT's browser endpoints, separate from the Codex OAuth usage connection.
-- Billing sync is off by default. After you enable it, it runs every five minutes while the tracker stays open. Importing an export turns it off. Keep a signed-in ChatGPT tab open in the same Chrome profile. Each tracked account is matched by provider account ID and signed-in email. Usage refreshes independently using each saved provider session. Billing can only refresh the matching active ChatGPT login in that Chrome profile; multiple tabs share the profile’s login. Use **Switch ChatGPT account** on an entry, switch or sign in on ChatGPT, then return and choose **Check billing** for that entry. This checks only that account, without enabling background billing sync. Usage and billing have separate last-checked timestamps. A failed billing check records the attempt and error on that entry while retaining its previous data and successful section timestamps. Permission errors and stale sections remain visible independently.
+- ChatGPT billing is fetched only when requested for an individual account. The local Chrome connector reads subscription status, renewal dates, invoice summaries from the four most recent transactions, complete member lists (up to 1,000 members), and purchased/assigned/available seats where permitted. These come from ChatGPT's browser endpoints, separate from the Codex OAuth usage connection.
+- Usage refreshes independently using each saved provider session. Billing has no background polling and needs no extension. Each check verifies the selected provider account ID and signed-in email. Usage and billing have separate last-checked timestamps. Failed checks retain previous data and successful section timestamps, with a dated error on the affected entry.
 - Invoice charges are actual historical payments, not predictions of the next bill. Unknown fields remain unknown. Manual billing and member forms have been removed; existing legacy records remain preserved in exports.
 - Automatic billing and membership sync for Claude and OpenCode is not implemented.
 - Session costs and plan capacities remain local estimates. Recording a used reset changes only this dashboard.
@@ -42,19 +42,25 @@ npm run build
 
 See [AGENTS.md](AGENTS.md) for maintenance rules and [AUDIT.md](AUDIT.md) for the latest assessment.
 
-## Chrome connection setup
+## Fetch billing once
 
-1. Open `chrome://extensions` and turn on Developer mode.
-2. Choose **Load unpacked** and select the `extension/` folder in this repository.
-3. Reload the tracker at `http://localhost:5173/` (or `127.0.0.1`, dev port 5173 or preview port 4173).
-4. Keep ChatGPT open and signed in to the account being tracked. Choose **Enable billing sync**. **Sync now** requests a refresh and **Pause sync** stops polling. If the extension is missing, sync turns off with a setup message.
+1. Run Allowance locally with Google Chrome installed, and connect the account's usage login.
+2. Choose **Billing** beside that account, then **Fetch billing**.
+3. Sign in to the indicated account in the temporary Chrome window. This isolated session does not use your regular Chrome profile, so it requires its own login.
+4. Return to Allowance and choose **I'm signed in · fetch billing**. Only that entry is checked. A different login is rejected without saving its data.
 
-The extension requests ChatGPT host access and scripting access to run its reader in a ChatGPT tab. These browser permissions allow access to ChatGPT page data; the implementation uses only read-only GET requests. Its local bridge only accepts the root page on the four loopback origins above. It does not request cookie, filesystem, or clipboard API permissions. The reader uses the existing browser session in memory, sends credentials only to ChatGPT, and returns a strict allowlist of normalized tracking fields. Tokens, payment methods, and private invoice URLs are never sent to the tracker or saved by the extension. It does not invite users, change seats, or perform billing actions.
+The window closes after the read, cancellation, or eight minutes. The connector does not save a browser profile or export its cookies. Passwords are entered directly on ChatGPT. The reader makes GET requests and returns only validated tracking fields; provider tokens, payment methods and private invoice URLs are omitted. It does not invite users, change seats, or perform billing actions. Existing records remain readable after the window closes.
 
-This is an unofficial integration with observed ChatGPT browser endpoints; it can require updates when those endpoints change. OpenAI’s terms restrict automated extraction; neither installing an extension nor Chrome Web Store approval guarantees account safety. See [SECURITY.md](SECURITY.md) for the data boundaries and deployment requirements. It does not bypass provider permissions or browser challenges. Direct server requests using the current OAuth login returned HTTP 403 with `cf-mitigated: challenge`; this establishes a browser-security challenge, not a missing account permission. The OAuth usage response itself contains no billing dates or invoices. Business uses the subscription endpoint; personal billing comes from the exact matching account in the browser account-check response.
+This is an unofficial integration with observed ChatGPT browser endpoints; it may break or be blocked. OpenAI's terms restrict automated extraction, and no account-safety guarantee is made. See [SECURITY.md](SECURITY.md). The connector does not bypass provider permissions or browser challenges. Direct server billing requests using the current OAuth login returned HTTP 403 with `cf-mitigated: challenge`; that establishes a browser challenge, not a missing account permission. The OAuth usage response contains no billing dates or invoices.
 
-After editing extension files, reload it on Chrome's Extensions page and reload the tracker. Tests use synthetic responses; live extension verification requires installing this connection. A mocked reader test is not a live provider integration test.
+Business uses the subscription endpoint after exact workspace membership validation; personal billing comes from the exact matching account in the account-check response. Tests use synthetic responses and disposable local servers. They do not establish live provider compatibility.
+
+## Official administration APIs
+
+The [OpenAI API Platform Admin API](https://developers.openai.com/api/docs/guides/admin-apis) manages Platform organizations and projects. It is separate from ChatGPT workspace administration and subscription billing.
+
+ChatGPT has a separate Admin API for enabled workspace features, with its own scoped keys. Official documentation covers [service-account management](https://learn.chatgpt.com/docs/enterprise/service-accounts) and [app permissions](https://developers.openai.com/cookbook/examples/chatgpt/sharepoint_site_access/sharepoint_site_access). These documents do not establish a generally available Business invoice or subscription-billing API. This app does not request an admin key or claim that a Business plan grants access. Confirm workspace eligibility, exact read scopes, and endpoint coverage before replacing the browser connector.
 
 ## Deployment status
 
-This repository is a local application, not a deployed service. Hosting and owner login are pending an architecture decision. Do not expose the Vite API on a public domain. No personal account data or provider credentials are included in the source.
+This repository is a local application, not a deployed service. Hosting and owner login are pending an architecture decision. A hosted web page cannot open or inspect your local Chrome session by itself; this connector needs a local process. Do not expose the Vite API on a public domain. No personal account data or provider credentials are included in the source.

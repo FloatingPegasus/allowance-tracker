@@ -31,7 +31,7 @@ export function applyLiveAccount(state: AppState, subscriptionId: string, accoun
   const next = mapSubscription(state, subscriptionId, (item) => ({
     ...item, plan, readingSource: "live", readingsKnown: account.windows.length > 0, updatedAt: now.toISOString(), usageCheckedAt: now.toISOString(),
     login: account.email || item.login,
-    ...(!sameIdentity ? { billing: null, workspaceId: null, browserDetails: undefined, browserSyncError: undefined } : {}),
+    ...(!sameIdentity ? { billing: null, workspaceId: null, browserDetails: undefined, browserSyncError: undefined, billingError: undefined } : {}),
     notes: template?.notes ?? "The provider did not identify a supported plan. Reported usage is still shown; session estimates are unavailable.",
     ...(account.windows.length ? {
       windows: account.windows.map((window) => ({
