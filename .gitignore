@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-server
 *.local
 .env
 .env.*
@@ -23,6 +24,8 @@ backups/
 *.db
 *.pem
 *.key
+.allowance/
+playwright/.auth/
 
 # Editor directories and files
 .vscode/*

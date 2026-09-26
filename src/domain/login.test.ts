@@ -3,7 +3,7 @@ import { applyLiveAccount, applyGoReading, createProviderAccount } from "./apply
 import { parseClaudeSnapshot } from "./claudeLogin";
 import { claudeAuthorizeUrl } from "./claudeLogin";
 import { openaiAuthorizeUrl, parseOpenAiSnapshot, readChatGptAccountId } from "./openaiLogin";
-import { createSeed } from "./catalog";
+import { createSeed } from "../test/legacyCatalog";
 
 const now = new Date(2026, 8, 25, 3, 57, 0);
 
@@ -143,7 +143,7 @@ describe("provider-first setup", () => {
     const snapshot = (plan: string) => parseClaudeSnapshot({ seven_day: { utilization: 20, resets_at: null } }, { account: { email: "me@example.com", has_claude_pro: plan === "Pro" } });
     const pro = applyLiveAccount(initial("claude"), "new", snapshot("Pro"), now);
     expect(pro.subscriptions[0].plan).toBe("Pro");
-    expect(pro.subscriptions[0].lanes.length).toBeGreaterThan(0);
+    expect(pro.subscriptions[0].lanes).toEqual([]);
     const changed = applyLiveAccount(pro, "new", { ...snapshot(""), plan: "Unknown tier" }, now).subscriptions[0];
     expect(changed.plan).toBe("Unknown tier");
     expect(changed.lanes).toEqual([]);

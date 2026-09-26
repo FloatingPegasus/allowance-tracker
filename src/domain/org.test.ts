@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSeed, findTemplateForPlan } from "./catalog";
+import { createSeed } from "../test/legacyCatalog";
 import { attachDetectedPlan, attachKnownPlans } from "./org";
 import { applyLiveAccount, createProviderAccount } from "./applyLogin";
 import { parseState } from "./storage";
@@ -7,7 +7,7 @@ import type { AppState, BillingCycle } from "./types";
 
 const now = new Date("2026-09-25T00:00:00Z");
 const initial = (): AppState => ({ version: 1, intent: "balanced", holdCodex: true, subscriptions: [createProviderAccount("chatgpt", "biz", now)] });
-const input = { template: findTemplateForPlan("chatgpt", "Business"), workspaceName: "Example workspace", role: "admin" as const, accountId: "workspace-1" };
+const input = { plan: "Business", workspaceName: "Example workspace", role: "admin" as const, accountId: "workspace-1" };
 const billing: BillingCycle = { amount: 240, currency: "USD", interval: "annual", renewsAt: "2027-09-25T12:00:00Z", source: "manual", checkedAt: now.toISOString() };
 
 describe("account and workspace tracking", () => {
@@ -17,7 +17,7 @@ describe("account and workspace tracking", () => {
     expect(state.subscriptions[0].accountRole).toBe("admin");
     expect(state.subscriptions[0].seat).toBeNull();
     expect(state.workspaces?.[0]).toMatchObject({ billing: null, members: [], seats: [], role: null });
-    const personal = attachDetectedPlan(initial(), "biz", { ...input, template: findTemplateForPlan("chatgpt", "Pro"), workspaceName: null, role: null }, now);
+    const personal = attachDetectedPlan(initial(), "biz", { ...input, plan: "Pro", workspaceName: null, role: null }, now);
     expect(personal.subscriptions[0].billing).toBeUndefined();
   });
 

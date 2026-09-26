@@ -1,24 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AddAccount } from "./components/AddAccount";
 import { AccountCard } from "./components/AccountCard";
-import { Hero } from "./components/Hero";
 import { BillingConnectionError, closeBillingBrowser, openBillingBrowser, readBillingBrowser } from "./domain/billingClient";
 import { applyBillingFailure, applyBillingRecord, type BillingTarget } from "./domain/billingRecords";
 import { beginLogin, clearPending, fetchLiveAccount, finishLogin, loadPending, matchesCallback, refreshLogin } from "./domain/appLoginClient";
 import { applyLiveAccount, applyGoReading, createProviderAccount } from "./domain/applyLogin";
 import type { ConnectProvider } from "./domain/applyLogin";
-import { createSeed } from "./domain/catalog";
-import { clearKeys, loadKeys, saveKeys } from "./domain/keys";
-import { applyBankedReset, mapSubscription, withBanked, withLogin, withWindow } from "./domain/mutate";
+import { loadKeys, saveKeys } from "./domain/keys";
+import { mapSubscription } from "./domain/mutate";
 import { attachKnownPlans } from "./domain/org";
 import { fetchGoUsage, maskKey } from "./domain/opencode";
-import { decide } from "./domain/present";
-import { clearSessions, loadSessions, saveSessions } from "./domain/sessions";
+import { loadSessions, saveSessions } from "./domain/sessions";
 import type { AppLogin, AppLoginProvider } from "./domain/sessions";
-import { clearState, loadState, parseState, saveState, storageProblem } from "./domain/storage";
-import type { AppState, Intent, ProviderId, Subscription, WindowKind } from "./domain/types";
+import { loadState, parseState, saveState, storageProblem } from "./domain/storage";
+import type { AppState, ProviderId, Subscription } from "./domain/types";
 
-interface BillingRequest { subscriptionId: string; target: BillingTarget; connectionId: string | null; stage: "starting" | "login" | "reading" }
+interface BillingRequest { subscriptionId: string; target: BillingTarget; connectionId: string | null; mode?: "local" | "cloud"; loginUrl?: string; expiresAt?: number; stage: "starting" | "login" | "reading" }
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => loadState());
@@ -26,7 +23,6 @@ export default function App() {
   const [canPersist, setCanPersist] = useState(() => !storageProblem());
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
   const [keys, setKeys] = useState<Record<string, string>>(() => loadKeys());
   const [sessions, setSessions] = useState<Record<string, AppLogin>>(() => loadSessions());
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
@@ -37,12 +33,10 @@ export default function App() {
   const keysRef = useRef(keys);
   const sessionsRef = useRef(sessions);
   const syncSessionRef = useRef<(id: string, login: AppLogin, announce: boolean) => Promise<void>>(async () => undefined);
-  const [showExamples, setShowExamples] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [billingRequest, setBillingRequest] = useState<BillingRequest | null>(null);
   const billingRef = useRef<BillingRequest | null>(null);
-  const visibleAccounts = state.subscriptions.filter((item) => showExamples || item.readingSource !== "seed");
-  const decision = useMemo(() => decide({ ...state, subscriptions: state.subscriptions.filter((item) => showExamples || item.readingSource !== "seed") }, now), [state, now, showExamples]);
+  const visibleAccounts = state.subscriptions.filter((item) => item.readingSource !== "seed");
 
   useEffect(() => {
     keysRef.current = keys;
@@ -82,7 +76,9 @@ export default function App() {
         workspaceName: account.workspaceName ?? fresh.workspaceName,
         accountId: account.accountId ?? fresh.accountId,
       });
-      setState((current) => applyLiveAccount(current, id, account, new Date()));
+      const checkedAt = new Date();
+      setNow(checkedAt);
+      setState((current) => applyLiveAccount(current, id, account, checkedAt));
       setAuthError((current) => ({ ...current, [id]: "" }));
       if (announce) {
         const who = account.email ?? fresh.email ?? "that seat";
@@ -118,10 +114,12 @@ export default function App() {
       try {
         const reading = await fetchGoUsage(apiKey, "");
         if (cancel) return;
+        const checkedAt = new Date();
+        setNow(checkedAt);
         setState((current) => {
           const seat = current.subscriptions.find((item) => item.id === id);
           if (!seat) return current;
-          return applyGoReading(current, id, reading, new Date());
+          return applyGoReading(current, id, reading, checkedAt);
         });
         setKeyError((current) => ({ ...current, [id]: "" }));
         if (announce) setNotice("OpenCode usage updated.");
@@ -205,10 +203,12 @@ export default function App() {
     setBillingRequest({ ...request });
     patch(subscription.id, (item) => ({ ...item, billingError: undefined }));
     try {
-      request.connectionId = await openBillingBrowser(request.target);
-      if (billingRef.current !== request) { await closeBillingBrowser(request.connectionId).catch(() => undefined); return; }
+      const connection = await openBillingBrowser(request.target);
+      Object.assign(request, connection);
+      if (billingRef.current !== request) { await closeBillingBrowser(connection.connectionId).catch(() => undefined); return; }
       request.stage = "login";
       setBillingRequest({ ...request });
+      if (request.mode === "cloud") await finishBilling();
     } catch (error) {
       if (billingRef.current !== request) return;
       billingFailure(request, error);
@@ -247,7 +247,7 @@ export default function App() {
     if (!request || (subscriptionId && subscriptionId !== request.subscriptionId)) return;
     billingRef.current = null;
     setBillingRequest(null);
-    if (request.connectionId) void closeBillingBrowser(request.connectionId).catch(() => setNotice("Close the temporary billing window. The connector could not close it; its session expires after eight minutes."));
+    if (request.connectionId) void closeBillingBrowser(request.connectionId).catch(() => setNotice("The billing browser could not be closed. Its session expires after fourteen minutes."));
   }
 
   useEffect(() => () => {
@@ -255,6 +255,17 @@ export default function App() {
     billingRef.current = null;
     if (id) void closeBillingBrowser(id).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!billingRequest?.expiresAt) return;
+    const timer = window.setTimeout(() => {
+      const request = billingRef.current;
+      if (!request || request.connectionId !== billingRequest.connectionId) return;
+      billingFailure(request, new Error("The sign-in window expired. Fetch billing to open a new one."));
+      cancelBilling();
+    }, Math.max(0, billingRequest.expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [billingRequest]);
 
   function loginProvider(provider: ProviderId): AppLoginProvider | null {
     if (provider === "claude") return "claude";
@@ -345,37 +356,6 @@ export default function App() {
               }}
             />
           </label>
-          {confirmReset ? (
-            <>
-              <button
-                type="button"
-                className="solid"
-                onClick={() => {
-                  cancelBilling();
-                  try { clearState(); clearKeys(); clearSessions(); } catch { /* Session state still resets when storage is blocked. */ }
-                  setCanPersist(true);
-                  keysRef.current = {};
-                  sessionsRef.current = {};
-                  setKeys({});
-                  setSessions({});
-                  const fresh = createSeed(new Date());
-                  setState(fresh);
-                  setNow(new Date());
-                  setConfirmReset(false);
-                  setNotice("Demo seats restored.");
-                }}
-              >
-                Restore demo
-              </button>
-              <button type="button" onClick={() => setConfirmReset(false)}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setConfirmReset(true)}>
-              Reset demo
-            </button>
-          )}
         </div></details>
       </header>
       {storageError && <p className="notice" role="alert">{storageError}</p>}
@@ -386,18 +366,10 @@ export default function App() {
       )}
       <main>
       {visibleAccounts.length ? <details className="add-account"><summary>Add account</summary><AddAccount onAdd={addProvider} busy={connecting} /></details> : <AddAccount onAdd={addProvider} busy={connecting} />}
-      {visibleAccounts.some((item) => item.readingsKnown && item.lanes.length) && <details className="planner"><summary>Session planner · estimates</summary>
-      <Hero
-        decision={decision}
-        intent={state.intent}
-        holdCodex={state.holdCodex}
-        onIntent={(intent: Intent) => setState((current) => ({ ...current, intent }))}
-        onHold={(holdCodex) => setState((current) => ({ ...current, holdCodex }))}
-      />
-      </details>}
       <section className="ledger" aria-label="Subscriptions">
         <div className="ledger-head">
           <h2>Your accounts</h2>
+          <p className="hint">Refreshes every minute while open</p>
         </div>
         {visibleAccounts.length === 0 && <p className="empty">Connect a provider above to see your usage here.</p>}
         {visibleAccounts.map((subscription) => (
@@ -408,17 +380,13 @@ export default function App() {
             billingActions={{
               busy: !!billingRequest,
               stage: billingRequest?.subscriptionId === subscription.id ? billingRequest.stage : undefined,
+              mode: billingRequest?.subscriptionId === subscription.id ? billingRequest.mode : undefined,
+              loginUrl: billingRequest?.subscriptionId === subscription.id ? billingRequest.loginUrl : undefined,
+              expiresAt: billingRequest?.subscriptionId === subscription.id ? billingRequest.expiresAt : undefined,
               onStart: subscription.providerAccountId && sessions[subscription.id]?.provider === "openai" ? () => void startBilling(subscription) : undefined,
               onRead: () => void finishBilling(),
               onCancel: () => cancelBilling(subscription.id),
             }}
-            recommended={decision.pick?.subscription.id === subscription.id}
-            onLogin={(login) => patch(subscription.id, (item) => withLogin(item, login, new Date()))}
-            onWindow={(kind: WindowKind, windowPatch) =>
-              patch(subscription.id, (item) => withWindow(item, kind, windowPatch, new Date()))
-            }
-            onBanked={(count, expiresAt) => patch(subscription.id, (item) => withBanked(item, count, expiresAt, new Date()))}
-            onApplyReset={() => patch(subscription.id, (item) => applyBankedReset(item, new Date()))}
             onRemove={() => {
               cancelBilling(subscription.id);
               setState((current) => ({
@@ -449,8 +417,10 @@ export default function App() {
               setSyncing((current) => ({ ...current, [subscription.id]: true }));
               void fetchGoUsage(apiKey, subscription.login)
                 .then((reading) => {
+                  const checkedAt = new Date();
+                  setNow(checkedAt);
                   setState((current) =>
-                    applyGoReading(current, subscription.id, reading, new Date()),
+                    applyGoReading(current, subscription.id, reading, checkedAt),
                   );
                   setKeyError((current) => ({ ...current, [subscription.id]: "" }));
                   setNotice(`Updated ${subscription.login} from OpenCode.`);
@@ -467,9 +437,12 @@ export default function App() {
               setSyncing((current) => ({ ...current, [subscription.id]: true }));
               void fetchGoUsage(apiKey, subscription.login)
                 .then((reading) => {
+                  const checkedAt = new Date();
+                  setNow(checkedAt);
                   setState((current) =>
-                    applyGoReading(current, subscription.id, reading, new Date()),
+                    applyGoReading(current, subscription.id, reading, checkedAt),
                   );
+                  setKeyError((current) => ({ ...current, [subscription.id]: "" }));
                   setNotice(`Updated ${subscription.login} from OpenCode.`);
                 })
                 .catch((error: unknown) => {
@@ -515,7 +488,7 @@ export default function App() {
                 saveSessions(next);
                 return next;
               });
-              setNotice(`Signed out of ${subscription.login}. The bars stay until the next sign-in.`);
+              setNotice(`Signed out of ${subscription.login}. The last reading is saved.`);
             }}
           />
         ))}
@@ -523,8 +496,7 @@ export default function App() {
       </section>
       </main>
       <footer>
-        {state.subscriptions.some((item) => item.readingSource === "seed") && <button onClick={() => setShowExamples(!showExamples)}>{showExamples ? "Hide example accounts" : "Show example accounts"}</button>}
-        <p>Provider credentials stay in this browser and are excluded from exports.</p>
+        <p>Usage credentials stay in this browser. Connected billing profiles stay with the browser service. Credentials are excluded from exports.</p>
       </footer>
     </div>
   );

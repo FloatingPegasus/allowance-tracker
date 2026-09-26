@@ -1,4 +1,3 @@
-import { createSeed } from "./catalog";
 import { attachKnownPlans } from "./org";
 import type { AppState, Intent } from "./types";
 
@@ -7,6 +6,10 @@ import { isSubscription, isWorkspace, uniqueIds } from "./validate";
 const KEY = "allowance-tracker/v1";
 
 const INTENTS = new Set<Intent>(["spare", "balanced", "frontier"]);
+
+export function emptyState(): AppState {
+  return { version: 1, intent: "balanced", holdCodex: false, subscriptions: [] };
+}
 
 export function parseState(raw: string): AppState | null {
   try {
@@ -25,14 +28,14 @@ export function parseState(raw: string): AppState | null {
 }
 
 export function loadState(now = new Date()): AppState {
-  if (typeof localStorage === "undefined") return createSeed(now);
+  if (typeof localStorage === "undefined") return emptyState();
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return createSeed(now);
+    if (!raw) return emptyState();
     const state = parseState(raw);
-    return state ? attachKnownPlans(state, now) : { version: 1, intent: "balanced", holdCodex: true, subscriptions: [] };
+    return state ? attachKnownPlans(state, now) : emptyState();
   } catch {
-    return createSeed(now);
+    return emptyState();
   }
 }
 
@@ -45,8 +48,4 @@ export function storageProblem(): string {
     const raw = localStorage.getItem(KEY);
     return raw && !parseState(raw) ? "Saved accounts could not be read. Import a backup; the original data is unchanged." : "";
   } catch { return "Browser storage is unavailable. Export your changes before closing this tab."; }
-}
-
-export function clearState(): void {
-  localStorage.removeItem(KEY);
 }

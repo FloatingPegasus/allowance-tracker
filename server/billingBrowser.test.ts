@@ -13,13 +13,14 @@ const details = {
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function fixture(options: { read?: () => Promise<unknown>; ttl?: number; failLaunch?: boolean } = {}) {
+async function fixture(options: { read?: () => Promise<unknown>; ttl?: number; failLaunch?: boolean; launchGate?: Promise<void> } = {}) {
   let disconnected = () => {};
   const close = vi.fn(async () => { disconnected(); });
   const read = vi.fn(options.read ?? (async () => details));
   const launch = vi.fn(async (onClose: () => void) => {
     if (options.failLaunch) throw new Error("private browser internals");
     disconnected = onClose;
+    await options.launchGate;
     return { read, close };
   });
   const routes = createBillingRoutes(launch, options.ttl);
@@ -108,4 +109,28 @@ it("reports a launch failure without leaking internals or retaining a connection
   expect(await response.text()).not.toContain("private browser internals");
   expect((await f.post("start", { target })).status).toBe(503);
   expect(f.launch).toHaveBeenCalledTimes(2);
+});
+
+it("closes a cloud browser that finishes launching after its request expires", async () => {
+  let release!: () => void;
+  const f = await fixture({ ttl: 50, launchGate: new Promise<void>((resolve) => { release = resolve; }) });
+  const pending = f.post("start", { target });
+  await vi.waitFor(() => expect(f.launch).toHaveBeenCalledTimes(1));
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  release();
+  expect((await pending).status).toBe(410);
+  expect(f.close).toHaveBeenCalledTimes(1);
+});
+
+it("blocks a new session until the previous browser has finished closing and saving", async () => {
+  const f = await fixture();
+  const connection = await f.start();
+  let finish!: () => void;
+  f.close.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const closing = f.post("cancel", connection);
+  await vi.waitFor(() => expect(f.close).toHaveBeenCalledTimes(1));
+  expect((await f.post("start", { target })).status).toBe(409);
+  finish();
+  expect((await closing).status).toBe(200);
+  expect((await f.post("start", { target })).status).toBe(200);
 });

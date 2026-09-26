@@ -1,19 +1,15 @@
 import { useState } from "react";
 import { BillingPanel, type BillingActions } from "./BillingPanel";
 import { ProviderLogin } from "./ProviderLogin";
-import { outlook } from "../domain/engine";
-import { formatSessions, meterTone, qualityLabel, remainingLabel, remainingPercent, seatLine } from "../domain/format";
-import { countdown, fromDatetimeLocal, resetStamp, toDatetimeLocal } from "../domain/time";
-import type { QuotaWindow, ReadingSource, Subscription, WindowKind, Workspace } from "../domain/types";
+import { meterTone, remainingLabel, remainingPercent, seatLine } from "../domain/format";
+import { countdown, resetStamp } from "../domain/time";
+import { checkedAgo, usageStatus } from "../domain/usageStatus";
+import type { QuotaWindow, Subscription, Workspace } from "../domain/types";
 import type { AppLogin, AppLoginProvider } from "../domain/sessions";
+
 interface Props {
   subscription: Subscription;
   now: Date;
-  recommended: boolean;
-  onLogin: (login: string) => void;
-  onWindow: (kind: WindowKind, patch: { usedPercent?: number; countUsed?: number; resetsAt?: string | null }) => void;
-  onBanked: (count: number, expiresAt: string | null) => void;
-  onApplyReset: () => void;
   onRemove: () => void;
   apiKeyHint: string | null;
   syncing: boolean;
@@ -31,201 +27,68 @@ interface Props {
   onSignOut: () => void;
 }
 
-const SOURCE: Record<ReadingSource, string> = {
-  seed: "Demo",
-  manual: "Manual",
-  extension: "Saved reading",
-  live: "Live",
-};
-
 export function AccountCard({
-  subscription,
-  now,
-  recommended,
-  onLogin,
-  onWindow,
-  onBanked,
-  onApplyReset,
-  onRemove,
-  apiKeyHint,
-  syncing,
-  keyError,
-  onConnectKey,
-  onRefreshKey,
-  onDisconnectKey,
-  workspace,
-  loginProvider,
-  signedIn,
-  authError,
-  onSignIn,
-  onRefreshLogin,
-  onSignOut,
-  billingActions,
+  subscription, now, onRemove, apiKeyHint, syncing, keyError,
+  onConnectKey, onRefreshKey, onDisconnectKey, workspace,
+  loginProvider, signedIn, authError, onSignIn, onRefreshLogin,
+  onSignOut, billingActions,
 }: Props) {
-  const [confirmReset, setConfirmReset] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [showBilling, setShowBilling] = useState(false);
-  const lanes = outlook(subscription);
-  const agentLanes = lanes.filter((item) => item.lane.surface === "agent");
-  const chatLanes = lanes.filter((item) => item.lane.surface === "chat");
+  const connected = signedIn != null || apiKeyHint != null;
+  const status = usageStatus(subscription, connected, authError || keyError, now);
+  const hasReading = subscription.readingsKnown && subscription.windows.length > 0;
+  const checkedAt = subscription.readingSource === "live" ? subscription.usageCheckedAt : undefined;
+  const openai = subscription.provider === "chatgpt" || subscription.provider === "codex";
 
   return (
-    <article
-      id={`seat-${subscription.id}`}
-      className={recommended ? "card is-pick" : "card"}
-      data-provider={subscription.provider}
-    >
+    <article id={`seat-${subscription.id}`} className="card" data-provider={subscription.provider} aria-labelledby={`account-${subscription.id}`}>
       <div className="card-id">
-        {recommended && <p className="kicker">Suggested</p>}
-        <div className="account-heading"><h2>
+        <h3 id={`account-${subscription.id}`}>
           <i className={`mark mark-${subscription.provider}`} aria-hidden="true" />
           {seatLine(subscription.provider, "", null)}
-        </h2><button type="button" aria-expanded={showBilling} aria-controls={`billing-${subscription.id}`} onClick={() => setShowBilling(!showBilling)}>Billing</button></div>
-        {subscription.plan && <p className="account-plan">{subscription.plan}{subscription.seat ? ` · ${subscription.seat}` : ""}</p>}
-        {loginProvider && (
-          <ProviderLogin
-            provider={loginProvider}
-            connected={signedIn != null}
-            email={signedIn?.email ?? null}
-            busy={syncing}
-            error={authError}
-            onSignIn={onSignIn}
-            onRefresh={onRefreshLogin}
-            onSignOut={onSignOut}
-          />
-        )}
-        {subscription.provider === "opencode" && (
-          <GoKey
-            hint={apiKeyHint}
-            syncing={syncing}
-            error={keyError}
-            onConnect={onConnectKey}
-            onRefresh={onRefreshKey}
-            onDisconnect={onDisconnectKey}
-          />
-        )}
-        <p className="meta">
-          <span className={`source source-${subscription.readingSource}`}>{subscription.readingsKnown ? (subscription.readingSource === "live" && authError ? "Last synced" : SOURCE[subscription.readingSource]) : signedIn || apiKeyHint ? "Usage unavailable" : "Not connected"}</span>
-          {subscription.supportsBankedResets && (
-            <span>
-              {subscription.bankedResets} banked
-              {subscription.bankedResetExpiresAt && subscription.bankedResets > 0
-                ? ` · until ${new Date(subscription.bankedResetExpiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                : ""}
-            </span>
-          )}
-        </p>
+          {subscription.plan && <span className="account-plan">{subscription.plan}</span>}
+        </h3>
+        <p className="account-login">{signedIn?.email ?? subscription.login}</p>
+        {workspace && <p className="hint workspace-name">{workspace.name}</p>}
+        <p className={`sync-status ${status === "Synced" ? "synced" : ""}`}>{status}</p>
+        {loginProvider && <ProviderLogin
+          provider={loginProvider}
+          connected={signedIn != null}
+          busy={syncing}
+          error={authError}
+          onSignIn={onSignIn}
+          onRefresh={onRefreshLogin}
+        />}
+        {subscription.provider === "opencode" && <GoKey
+          hint={apiKeyHint} syncing={syncing} error={keyError}
+          onConnect={onConnectKey} onRefresh={onRefreshKey}
+        />}
       </div>
       <div className="card-body">
-        <p className="usage-heading">{subscription.provider === "chatgpt" || subscription.provider === "codex" ? "Codex allowance remaining" : "Allowance remaining"}</p>
+        <p className="usage-heading">{openai ? "Codex allowance remaining" : "Allowance remaining"}</p>
         <div className="meters">
-          {!subscription.readingsKnown ? <p className="empty">{signedIn || apiKeyHint ? "The provider has not reported usage. Try refreshing or add a manual reading below." : "Connect to read your usage automatically."}</p> : subscription.windows.map((window) => (
-            <Meter key={window.kind} window={window} now={now} />
-          ))}
+          {hasReading ? subscription.windows.map((window) => <Meter key={window.kind} window={window} now={now} />)
+            : <p className="empty">{connected ? "No usage reported. Try refreshing." : "Connect to see your allowance."}</p>}
         </div>
-        {subscription.usageCheckedAt && <p className="hint">Usage checked <time dateTime={subscription.usageCheckedAt}>{new Date(subscription.usageCheckedAt).toLocaleString()}</time></p>}
-        {showBilling && <div id={`billing-${subscription.id}`}><BillingPanel
-          subscription={subscription}
-          workspace={workspace}
-          {...billingActions}
-        /></div>}
-        {subscription.readingsKnown && lanes.length > 0 && <details className="lane-details"><summary>Estimated sessions by model</summary><ul className="lanes">
-          {agentLanes.map(({ lane, view }) => (
-            <li key={lane.id}>
-              <span>{lane.name}</span>
-              <span className="q">{qualityLabel(lane.quality)}</span>
-              {view ? (
-                <span className="num">
-                  {formatSessions(view.sessions)}
-                  {view.protected ? " · held" : ""}
-                </span>
-              ) : (
-                <span className="num blocked">no room</span>
-              )}
-            </li>
-          ))}
-          {chatLanes.map(({ lane, view }) => (
-            <li key={lane.id} className="chat-lane">
-              <span>{lane.name}</span>
-              <span className="q">Chat</span>
-              <span className="num">{view ? formatSessions(view.sessions) : "no room"}</span>
-            </li>
-          ))}
-        </ul></details>}
-        <details className="account-settings"><summary>Account settings & manual readings</summary>
-        <label className="login">
-          Login
-          <input
-            value={subscription.login}
-            aria-label={`Login for ${subscription.plan} ${subscription.seat ?? ""}`.trim()}
-            placeholder="you@company.com or a label"
-            autoComplete="off"
-            maxLength={120}
-            onChange={(event) => onLogin(event.target.value)}
-          />
-        </label>
-        <details className="plan-notes"><summary>Plan assumptions</summary><p className="hint">Local presets; confirm your account’s actual limits with the provider.</p><p className="notes">{subscription.notes}</p></details>
-        <div className="card-actions">
-          {subscription.supportsBankedResets &&
-            (confirmReset ? (
-              <>
-                <button type="button" className="solid" onClick={() => { onApplyReset(); setConfirmReset(false); }}>
-                  Apply reset
-                </button>
-                <button type="button" onClick={() => setConfirmReset(false)}>
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button type="button" disabled={subscription.bankedResets <= 0} onClick={() => setConfirmReset(true)}>
-                Record a used reset
-              </button>
-            ))}
-          {confirmRemove ? (
-            <>
-              <button type="button" className="danger" onClick={onRemove}>
-                Confirm remove
-              </button>
-              <button type="button" onClick={() => setConfirmRemove(false)}>
-                Keep
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setConfirmRemove(true)}>
-              Remove
-            </button>
-          )}
-        </div>
-        <details className="adjust">
-          <summary>Adjust readings</summary>
-          {subscription.windows.map((window) => (
-            <WindowEditor key={window.kind} window={window} onWindow={onWindow} />
-          ))}
-          {subscription.supportsBankedResets && (
-            <div className="edit-row">
-              <label>
-                Banked resets
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={subscription.bankedResets}
-                  onChange={(event) => onBanked(Number(event.target.value), subscription.bankedResetExpiresAt)}
-                />
-              </label>
-              <label>
-                Expires
-                <input
-                  type="datetime-local"
-                  value={subscription.bankedResetExpiresAt ? toDatetimeLocal(subscription.bankedResetExpiresAt) : ""}
-                  onChange={(event) => onBanked(subscription.bankedResets, fromDatetimeLocal(event.target.value))}
-                />
-              </label>
-            </div>
-          )}
-        </details>
-        </details>
+        {checkedAt && <p className="hint"><time dateTime={checkedAt} title={new Date(checkedAt).toLocaleString()}>{checkedAgo(checkedAt, now)}</time>{status !== "Synced" && hasReading ? " · Showing last saved usage" : ""}</p>}
+        {hasReading && !checkedAt && <p className="hint">Saved reading · not verified by a current provider check</p>}
       </div>
+      <details className="account-details">
+        <summary>Account details</summary>
+        {subscription.accountRole && <p className="hint">Workspace role: {subscription.accountRole}</p>}
+        {openai && <details className="billing-details">
+          <summary>Billing & workspace</summary>
+          <BillingPanel subscription={subscription} workspace={workspace} {...billingActions} />
+        </details>}
+        <div className="card-actions">
+          {connected && <button type="button" disabled={syncing} onClick={signedIn ? onSignOut : onDisconnectKey}>Disconnect</button>}
+          {confirmRemove ? <>
+            <span className="hint">Remove this account and its saved readings?</span>
+            <button type="button" className="danger" onClick={onRemove}>Confirm remove</button>
+            <button type="button" onClick={() => setConfirmRemove(false)}>Keep account</button>
+          </> : <button type="button" onClick={() => setConfirmRemove(true)}>Remove account</button>}
+        </div>
+      </details>
     </article>
   );
 }
@@ -275,14 +138,12 @@ function GoKey({
   error,
   onConnect,
   onRefresh,
-  onDisconnect,
 }: {
   hint: string | null;
   syncing: boolean;
   error: string | null;
   onConnect: (apiKey: string) => void;
   onRefresh: () => void;
-  onDisconnect: () => void;
 }) {
   const [draft, setDraft] = useState("");
   return (
@@ -300,11 +161,8 @@ function GoKey({
         <>
           <p className="hint">Key: {hint}</p>
           <div className="card-actions">
-            <button type="button" className="solid" disabled={syncing} onClick={onRefresh}>
+            <button type="button" disabled={syncing} onClick={onRefresh}>
               {syncing ? "Reading…" : "Refresh usage"}
-            </button>
-            <button type="button" onClick={onDisconnect}>
-              Disconnect
             </button>
           </div>
         </>
@@ -330,60 +188,5 @@ function GoKey({
       )}
       {error && <p className="error">{error}</p>}
     </form>
-  );
-}
-
-function WindowEditor({
-  window,
-  onWindow,
-}: {
-  window: QuotaWindow;
-  onWindow: Props["onWindow"];
-}) {
-  const counted = window.countCapacity != null;
-  return (
-    <div className="edit-block">
-      <div className="edit-row">
-        <label>
-          {window.label}
-          <input
-            type="range"
-            min={0}
-            max={counted ? window.countCapacity : 100}
-            step={1}
-            value={counted ? (window.countUsed ?? 0) : Math.round(window.usedPercent)}
-            aria-label={`${window.label} used`}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              if (counted) onWindow(window.kind, { countUsed: next });
-              else onWindow(window.kind, { usedPercent: next });
-            }}
-          />
-        </label>
-        <label>
-          {counted ? "Count used" : "Percent used"}
-          <input
-            type="number"
-            min={0}
-            max={counted ? window.countCapacity : 100}
-            value={counted ? (window.countUsed ?? 0) : Math.round(window.usedPercent)}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              if (counted) onWindow(window.kind, { countUsed: next });
-              else onWindow(window.kind, { usedPercent: next });
-            }}
-          />
-        </label>
-        <label>
-          Resets
-          <input
-            type="datetime-local"
-            value={window.resetsAt ? toDatetimeLocal(window.resetsAt) : ""}
-            onChange={(event) => onWindow(window.kind, { resetsAt: fromDatetimeLocal(event.target.value) })}
-          />
-        </label>
-      </div>
-      <p className="hint">{window.hint}</p>
-    </div>
   );
 }

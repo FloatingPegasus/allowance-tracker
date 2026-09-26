@@ -1,4 +1,3 @@
-import { findTemplateForPlan, type Template } from "./catalog";
 import type { AppState, OrgRole, Subscription, Workspace } from "./types";
 
 export function attachKnownPlans(state: AppState, now: Date): AppState {
@@ -6,7 +5,7 @@ export function attachKnownPlans(state: AppState, now: Date): AppState {
   for (const subscription of state.subscriptions) {
     if (subscription.readingSource === "seed" || !subscription.plan) continue;
     next = attachDetectedPlan(next, subscription.id, {
-      template: findTemplateForPlan(subscription.provider, subscription.plan),
+      plan: subscription.plan,
       workspaceName: null, role: subscription.accountRole ?? null,
       accountId: subscription.providerAccountId ?? null,
     }, now);
@@ -17,20 +16,23 @@ export function attachKnownPlans(state: AppState, now: Date): AppState {
 export function attachDetectedPlan(
   state: AppState,
   subscriptionId: string,
-  input: { template: Template | undefined; workspaceName: string | null; role: OrgRole | null; accountId?: string | null },
+  input: { plan: string; workspaceName: string | null; role: OrgRole | null; accountId?: string | null },
   _now: Date,
 ): AppState {
   const original = state.subscriptions.find((item) => item.id === subscriptionId);
   if (!original) return state;
   const seat: Subscription = {
     ...original,
-    templateId: input.template?.id ?? `detect-${original.provider}`,
     seat: null,
     accountRole: input.role,
     providerAccountId: input.accountId ?? null,
   };
   let workspaces = [...(state.workspaces ?? [])];
-  if (input.template?.org) {
+  const plan = input.plan.trim().toLowerCase();
+  const workspacePlan = original.provider === "claude"
+    ? plan === "team" || plan === "enterprise"
+    : (original.provider === "chatgpt" || original.provider === "codex") && ["business", "business premium", "team", "enterprise"].includes(plan);
+  if (workspacePlan) {
     // Names and plan labels are not workspace identities.
     const id = input.accountId
       ? `workspace:${seat.provider}:${input.accountId}`

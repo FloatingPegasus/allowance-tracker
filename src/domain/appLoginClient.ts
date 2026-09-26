@@ -30,7 +30,7 @@ async function post(path: string, body: unknown): Promise<unknown> {
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("Couldn't reach sign-in. Run the app with the dev server.");
+    throw new Error("Cannot reach the local app server. Restart Allowance and retry.");
   }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {

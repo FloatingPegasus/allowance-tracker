@@ -1,11 +1,13 @@
 # Allowance Tracker
 
-Local React/TypeScript dashboard for manually recorded or provider-fetched AI usage. Vite supplies the loopback-only API; a static `dist` deployment cannot sign in or fetch usage.
+React/TypeScript dashboard for provider-reported AI allowance, with a separate owner-only hosted billing build. Vite supplies the loopback usage API; the production Node server supplies authenticated cloud billing. A static deployment cannot perform either integration.
 
 ## Project map
 
-- `src/domain/`: plan presets, ranking, readings, import validation, storage, provider adapters.
-- `src/components/`: account ledger, planner, budget estimates and connection controls.
+- `src/domain/`: readings, freshness, import validation, storage, provider adapters.
+- `src/components/`: account ledger, billing panels, owner login and connection controls.
+- `server/cloudBrowser.ts`: separate persistent cloud profiles for on-demand billing.
+- `server/hostedServer.ts`, `hostedStore.ts`: owner authorization and encrypted billing storage.
 - `server/authProxy.ts`: OAuth callbacks, token exchange/refresh, usage requests.
 - `vite.config.ts`: dev/preview middleware and OpenCode proxy.
 
@@ -17,18 +19,19 @@ npm run dev -- --host 127.0.0.1 --port 5173
 npm test
 npm run lint
 npm run build
+npm run build:hosted
 npm run preview -- --host 127.0.0.1 --port 4173
 ```
 
 ## Invariants
 
 - Setup starts with ChatGPT, Claude or OpenCode. Detect identity, plan and usage windows after connection; never require a plan/seat template beforehand. Unknown metadata stays unknown. Show only reported windows after live sync, and never borrow another workspace’s plan.
-- Keep examples hidden by default and exclude hidden examples from recommendations. Manual setup, budget assumptions and model estimates are secondary controls.
+- Start new installs empty. Preserve legacy export fields and hidden examples without using them to infer live capacity. Do not reintroduce manual quota overrides, local reset actions, model-session estimates, or preset-based recommendations.
 
-- Demo readings, plan capacities, model-session costs, and prices are presets, not verified entitlements. Budget estimates are not invoices. Recording a reset never redeems a provider credit.
-- Gate recommendations on valid known readings. Unknown, malformed or ambiguous account matches cannot be treated as free capacity. Identify the limiting window by remaining sessions.
+- Unknown, malformed, disconnected, or ambiguous readings cannot be treated as free capacity. Keep freshness and connection status explicit; preserve the last reading on a failed refresh. Billing uses an unofficial browser integration; live verification and saved records must remain distinct from mock tests and current provider guarantees.
 - OAuth requires PKCE, an exact state/provider match, and same-origin JSON on a loopback Host. Do not print or export tokens or keys. Invalid callbacks must not consume a pending valid callback.
 - Persist rotated refresh tokens before requesting usage. Avoid concurrent refreshes per account and discard late responses after sign-out or removal.
+- Hosted account and billing routes require owner authorization, exact Host/Origin checks for writes, and private persistent storage. Never expose Vite publicly or put server secrets in a frontend environment variable.
 - Import/export excludes credentials. Replacing an account export disconnects old sessions. Unreadable storage must remain untouched and storage failures must be visible.
 
 ## Working approach

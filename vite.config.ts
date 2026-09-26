@@ -4,20 +4,25 @@ import type { Plugin, ProxyOptions } from "vite";
 import { defineConfig } from "vitest/config";
 import { attachAuthRoutes } from "./server/authProxy.ts";
 import { createBillingRoutes } from "./server/billingBrowser.ts";
+import { cloudBrowser } from "./server/cloudBrowser.ts";
+import { loadEnv } from "vite";
+import { resolve } from "node:path";
 
-function authApi(): Plugin {
+function authApi(env: Record<string, string>): Plugin {
+  const launch = env.BROWSERBASE_API_KEY ? cloudBrowser({ apiKey: env.BROWSERBASE_API_KEY, projectId: env.BROWSERBASE_PROJECT_ID, directory: resolve(env.ALLOWANCE_DATA_DIR || ".allowance", "profiles") }) : undefined;
+  const launchError = launch ? "Could not start the cloud billing browser. Check the server credentials, service allowance and saved profile storage." : undefined;
   return {
     name: "allowance-auth",
     configureServer(server) {
       const cleanup = attachAuthRoutes(server.middlewares);
-      const billing = createBillingRoutes();
+      const billing = createBillingRoutes(launch, undefined, launchError);
       server.middlewares.use(billing.middleware);
       server.httpServer?.once("close", billing.cleanup);
       server.httpServer?.once("close", cleanup);
     },
     configurePreviewServer(server) {
       const cleanup = attachAuthRoutes(server.middlewares);
-      const billing = createBillingRoutes();
+      const billing = createBillingRoutes(launch, undefined, launchError);
       server.middlewares.use(billing.middleware);
       server.httpServer?.once("close", billing.cleanup);
       server.httpServer?.once("close", cleanup);
@@ -46,12 +51,12 @@ function opencodeUsageProxy(): ProxyOptions {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), authApi()],
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), authApi(loadEnv(mode, process.cwd(), ""))],
   server: { proxy: { "/api/opencode/usage": opencodeUsageProxy() } },
   preview: { proxy: { "/api/opencode/usage": opencodeUsageProxy() } },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "server/**/*.test.ts"],
   },
-});
+}));

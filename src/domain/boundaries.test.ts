@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createSeed } from './catalog';
+import { createSeed } from '../test/legacyCatalog';
 import { parseState } from './storage';
 import { applyReading, isUsageReading } from './reading';
 import { matchesCallback } from './appLoginClient';
-import { assessLane } from './engine';
 const now = new Date('2026-09-25T00:00:00Z');
 
 describe('external data boundaries', () => {
@@ -37,12 +36,5 @@ describe('external data boundaries', () => {
     expect(matchesCallback(pending,null,'openai')).toBe(false);
     expect(matchesCallback(pending,'expected','claude')).toBe(false);
     expect(matchesCallback(pending,'expected','openai')).toBe(true);
-  });
-  it('identifies the limiting window by available sessions', () => {
-    const seat=createSeed(now).subscriptions[0]!;
-    seat.windows=seat.windows.filter(w=>w.kind==='weekly'||w.kind==='five_hour').map(w=>({...w,usedPercent:w.kind==='weekly'?99:0,capacityWeight:1}));
-    const view=assessLane(seat,{id:'test',name:'test',quality:1,surface:'agent',shares:{weekly:1,five_hour:5}});
-    expect(view?.tightest.kind).toBe('weekly');
-    expect(view?.sessions).toBe(1);
   });
 });

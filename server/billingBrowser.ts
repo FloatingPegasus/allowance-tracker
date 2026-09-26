@@ -3,10 +3,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { chromium } from "playwright-core";
 import { trustedRequest } from "./authProxy.ts";
 import { readAccount } from "./billingReader.js";
-import { isBrowserDetails, type BillingTarget } from "../src/domain/billingRecords.ts";
+import { isBrowserDetails, type BillingTarget, type BrowserDetails } from "../src/domain/billingRecords.ts";
+import { BillingServiceError } from "./billingErrors.ts";
 
-interface BillingBrowser { read: (target: BillingTarget) => Promise<unknown>; close: () => Promise<void> }
-type LaunchBrowser = (onClose: () => void) => Promise<BillingBrowser>;
+export interface BillingBrowser { mode?: "local" | "cloud"; loginUrl?: string; read: (target: BillingTarget) => Promise<unknown>; close: () => Promise<void> }
+export type LaunchBrowser = (onClose: () => void, target: BillingTarget) => Promise<BillingBrowser>;
 interface Connection {
   id: string;
   origin: string;
@@ -15,6 +16,7 @@ interface Connection {
   browser: BillingBrowser | null;
   busy: boolean;
   closed: boolean;
+  closing?: Promise<void>;
   timer?: ReturnType<typeof setTimeout>;
 }
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
@@ -63,21 +65,36 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-export function createBillingRoutes(launch: LaunchBrowser = launchBrowser, ttl = 8 * 60_000) {
+interface BillingRouteOptions {
+  authorize?: (req: IncomingMessage) => boolean;
+  targetAllowed?: (target: BillingTarget) => boolean;
+  save?: (details: BrowserDetails) => void;
+  failure?: (target: BillingTarget, message: string) => void;
+}
+export function createBillingRoutes(launch: LaunchBrowser = launchBrowser, ttl = 14 * 60_000, launchError = "Could not open the billing window. Install Google Chrome and run Allowance on this computer.", options: BillingRouteOptions = {}) {
   let active: Connection | null = null;
+  const fail = (res: ServerResponse, status: number, message: string, target: BillingTarget) => {
+    try { options.failure?.(target, message); }
+    catch { send(res, 500, { error: "The billing check failed and its status could not be saved. Previous records were kept." }); return; }
+    send(res, status, { error: message });
+  };
   const close = async (connection: Connection) => {
+    if (connection.closing) return connection.closing;
     connection.closed = true;
     clearTimeout(connection.timer);
-    if (active === connection) active = null;
     const browser = connection.browser;
     connection.browser = null;
-    await browser?.close().catch(() => undefined);
+    connection.closing = Promise.resolve().then(async () => {
+      await browser?.close().catch(() => undefined);
+      if (active === connection) active = null;
+    });
+    await connection.closing;
   };
 
   const middleware: Middleware = (req, res, next) => {
     const path = req.url?.split("?")[0];
     if (!path?.startsWith("/api/billing/")) { next(); return; }
-    if (!trustedRequest(req)) { send(res, 403, { error: "Billing requests must come from this local app." }); return; }
+    if (!(options.authorize ?? trustedRequest)(req)) { send(res, 403, { error: "Billing requests must come from this app." }); return; }
     if (req.method !== "POST") { send(res, 405, { error: "Billing requests require POST." }); return; }
     void (async () => {
       let body;
@@ -87,18 +104,19 @@ export function createBillingRoutes(launch: LaunchBrowser = launchBrowser, ttl =
       if (path === "/api/billing/start") {
         const target = targetFrom(body.target);
         if (!target) { send(res, 400, { error: "Choose an account with a verified provider identity." }); return; }
+        if (options.targetAllowed && !options.targetAllowed(target)) { send(res, 403, { error: "That account is not connected to this tracker." }); return; }
         if (active) { send(res, 409, { error: "Finish or cancel the open billing check first." }); return; }
         const connection: Connection = { id: randomUUID(), origin, target, expiresAt: Date.now() + ttl, browser: null, busy: false, closed: false };
         active = connection;
         connection.timer = setTimeout(() => { void close(connection); }, ttl);
         connection.timer.unref();
         try {
-          connection.browser = await launch(() => { void close(connection); });
-          if (connection.closed) { await close(connection); send(res, 410, { error: "The billing window was closed. Open a new check to continue." }); return; }
-          send(res, 200, { connectionId: connection.id, expiresAt: connection.expiresAt });
-        } catch {
+          connection.browser = await launch(() => { void close(connection); }, target);
+          if (connection.closed) { await connection.browser.close().catch(() => undefined); send(res, 410, { error: "The billing window was closed. Open a new check to continue." }); return; }
+          send(res, 200, { connectionId: connection.id, expiresAt: connection.expiresAt, mode: connection.browser.mode ?? "local", loginUrl: connection.browser.loginUrl });
+        } catch (error) {
           await close(connection);
-          send(res, 503, { error: "Could not open the billing window. Install Google Chrome and run Allowance on this computer." });
+          fail(res, 503, error instanceof BillingServiceError ? error.message : launchError, target);
         }
         return;
       }
@@ -112,18 +130,21 @@ export function createBillingRoutes(launch: LaunchBrowser = launchBrowser, ttl =
       try {
         const result = await connection.browser.read(connection.target);
         if (connection.closed || active !== connection) { send(res, 410, { error: "The billing check ended. Its result was discarded." }); return; }
-        if (result && typeof result === "object" && "mismatch" in result) { send(res, 409, { error: `Sign in as ${connection.target.email} in the billing window, then retry. No data from another account was saved.` }); return; }
+        if (result && typeof result === "object" && "mismatch" in result) { fail(res, 409, `Sign in as ${connection.target.email} in the billing window, then retry. No data from another account was saved.`, connection.target); return; }
         if (!isBrowserDetails(result)) {
           const message = result && typeof result === "object" && "error" in result && typeof result.error === "string" ? result.error.slice(0, 500) : "Billing could not be read. Finish signing in, then retry.";
-          send(res, 409, { error: message }); return;
+          fail(res, 409, message, connection.target); return;
         }
-        if (result.accountId !== connection.target.accountId || result.email.toLowerCase() !== connection.target.email.toLowerCase()) { send(res, 409, { error: "The billing result belongs to another account and was discarded." }); return; }
+        if (result.accountId !== connection.target.accountId || result.email.toLowerCase() !== connection.target.email.toLowerCase()) { fail(res, 409, "The billing result belongs to another account and was discarded.", connection.target); return; }
+        try { options.save?.(result); }
+        catch { send(res, 500, { error: "Billing was read but could not be saved. Retry before closing this check." }); return; }
         await close(connection);
         send(res, 200, { details: result });
       } catch {
-        send(res, connection.closed ? 410 : 409, { error: connection.closed ? "The billing window closed. Open a new check to continue." : "The billing window could not be read. Finish signing in, or cancel and start again." });
+        if (connection.closed) send(res, 410, { error: "The billing window closed. Open a new check to continue." });
+        else fail(res, 409, "The billing window could not be read. Finish signing in, or cancel and start again.", connection.target);
       } finally { connection.busy = false; }
-    })();
+    })().catch(() => { if (!res.headersSent) send(res, 500, { error: "The billing request failed. Saved records were kept." }); else res.end(); });
   };
-  return { middleware, cleanup: () => { if (active) void close(active); } };
+  return { middleware, cleanup: async () => { if (active) await close(active); } };
 }

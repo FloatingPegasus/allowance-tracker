@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: allowance
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build:hosted
+    startCommand: node dist-server/hosted.mjs
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    domains:
+      - allowance.kanishq.dev
+    disk:
+      name: allowance-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: ALLOWANCE_ORIGIN
+        value: https://allowance.kanishq.dev
+      - key: ALLOWANCE_DATA_DIR
+        value: /var/data/allowance
+      - key: ALLOWANCE_ENCRYPTION_KEY
+        generateValue: true
+      - key: ALLOWANCE_PASSWORD_HASH
+        sync: false
+      - key: BROWSERBASE_API_KEY
+        sync: false
