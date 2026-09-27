@@ -18,5 +18,5 @@ RUN mkdir /data && chown node:node /data
 USER node
 ENV NODE_ENV=production ALLOWANCE_DATA_DIR=/data ALLOWANCE_BIND=0.0.0.0 PORT=3000
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "fetch('http://127.0.0.1:3000/api/health',{headers:{host:new URL(process.env.ALLOWANCE_ORIGIN).host}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "require('node:http').get('http://127.0.0.1:3000/api/health',{headers:{host:new URL(process.env.ALLOWANCE_ORIGIN).host},timeout:4000},r=>{r.resume();if(r.statusCode!==200)process.exit(1)}).on('timeout',()=>process.exit(1)).on('error',()=>process.exit(1))"
 CMD ["node", "--import", "tsx", "server/main.ts"]
