@@ -8,6 +8,10 @@ As checked on 27 September 2026, Oracle documents an Always Free A1 allowance eq
 
 Availability is limited, and Oracle can reclaim idle free VMs. Keep backups outside the instance. These terms do not guarantee an always-on free service. [Current Oracle limits and reclamation rules](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
 
+If A1 capacity is unavailable, an eligible `VM.Standard.E2.1.Micro` is a smaller free option. It has 1 GB RAM and shared CPU, so refreshes can take longer. Use the Ubuntu AMD64 image, provide at least 1 GB of swap on the existing boot disk, and run Compose with `-f compose.yaml -f compose.micro.yaml`. This limits the app to 768 MB RAM and Caddy to 96 MB. Apply both files to every Compose command. The local constrained test covered app authentication, restart persistence, concurrent CLI startup and unauthenticated usage checks; authenticated usage still needs verification on the deployed host.
+
+Deploy on a separate instance and network when another app already uses this tenancy. The default Compose stack binds ports 80 and 443; do not run it on an existing application's host without a separately reviewed integration.
+
 For account recovery: find the original welcome email, use its tenancy/domain sign-in, then Forgot Password. If the reset email is missing, [Oracle documents live chat support without signing in](https://docs.oracle.com/en-us/iaas/Content/GSG/Tasks/signinginIdentityDomain.htm).
 
 ## Start on a VM

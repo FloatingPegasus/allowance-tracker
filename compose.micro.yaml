@@ -1,0 +1,7 @@
+services:
+  app:
+    mem_limit: 768m
+    memswap_limit: 1536m
+  https:
+    mem_limit: 96m
+    memswap_limit: 128m
