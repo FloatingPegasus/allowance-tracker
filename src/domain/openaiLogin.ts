@@ -56,14 +56,12 @@ function kindForSeconds(seconds: number): WindowKind | null {
 function roleFromAccount(value: string): OrgRole | null {
   if (["owner", "account-owner"].includes(value)) return "owner";
   if (["admin", "account-admin"].includes(value)) return "admin";
-  if (["member", "account-member", "standard"].includes(value)) return "member";
+  if (["member", "account-member"].includes(value)) return "member";
   return null;
 }
 
 function planLabel(planType: string): string {
-  if (planType.includes("prolite")) return "Business";
-  if (planType.includes("premium")) return "Business Premium";
-  if (planType.includes("business")) return "Business";
+  if (planType.startsWith("self_serve_business") || ["business", "business_premium", "team"].includes(planType)) return "Business";
   if (planType.includes("plus")) return "Plus";
   if (planType === "pro" || planType.endsWith("_pro")) return "Pro";
   if (planType === "free") return "Free";
@@ -83,8 +81,9 @@ function preferredAccount(accounts: unknown, fallbackId: string | null): Account
   const rows = (accounts as { accounts?: unknown }).accounts;
   if (!Array.isArray(rows)) return null;
   const typed = rows.filter((row): row is AccountRow => !!row && typeof row === "object");
-  if (fallbackId) return typed.find((row) => row.id === fallbackId) ?? null;
-  return typed.length === 1 ? typed[0] : null;
+  if (!fallbackId) return null;
+  const matches = typed.filter((row) => row.id === fallbackId);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export function parseOpenAiSnapshot(usage: unknown, accounts: unknown): LiveAccount {
@@ -125,7 +124,8 @@ export function parseOpenAiSnapshot(usage: unknown, accounts: unknown): LiveAcco
   }
   const banked = body.rate_limit_reset_credits?.available_count;
   const planType = typeof body.plan_type === "string" ? body.plan_type : typeof account?.plan_type === "string" ? account.plan_type : null;
-  const role = typeof account?.account_user_role === "string" ? roleFromAccount(account.account_user_role) : null;
+  const workspace = account?.structure === "workspace" || (planType != null && ["Business", "team", "enterprise"].includes(planLabel(planType)));
+  const role = workspace && typeof account?.account_user_role === "string" ? roleFromAccount(account.account_user_role) : null;
   return {
     email: typeof body.email === "string" ? body.email : null,
     accountId: account?.id ?? accountId,

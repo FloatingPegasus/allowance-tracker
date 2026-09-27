@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      ALLOWANCE_ORIGIN: https://${ALLOWANCE_DOMAIN:?Set ALLOWANCE_DOMAIN in .env}
+    volumes:
+      - allowance-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 2g
+    logging:
+      options:
+        max-size: 5m
+        max-file: '2'
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      ALLOWANCE_DOMAIN: ${ALLOWANCE_DOMAIN:?Set ALLOWANCE_DOMAIN in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging:
+      options:
+        max-size: 5m
+        max-file: '2'
+volumes:
+  allowance-data:
+  caddy-data:
+  caddy-config:

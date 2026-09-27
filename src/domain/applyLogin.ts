@@ -29,7 +29,7 @@ export function applyLiveAccount(state: AppState, subscriptionId: string, accoun
   const next = mapSubscription(state, subscriptionId, (item) => ({
     ...item, plan, readingSource: "live", readingsKnown: account.windows.length > 0, updatedAt: now.toISOString(), usageCheckedAt: now.toISOString(),
     login: account.email || item.login,
-    ...(!sameIdentity ? { billing: null, workspaceId: null, browserDetails: undefined, browserSyncError: undefined, billingError: undefined } : {}),
+    ...(!sameIdentity ? { billing: null, billingSchedule: null, manualBusinessSeat: null, workspaceId: null, browserDetails: undefined, browserSyncError: undefined, billingError: undefined } : {}),
     ...(account.windows.length ? {
       windows: account.windows.map((window) => ({
         kind: window.kind, label: LABELS[window.kind], usedPercent: window.usedPercent ?? 0,

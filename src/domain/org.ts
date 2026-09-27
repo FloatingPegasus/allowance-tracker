@@ -1,4 +1,4 @@
-import type { AppState, OrgRole, Subscription, Workspace } from "./types";
+import type { AppState, OrgRole, Subscription, Workspace } from "./types.ts";
 
 export function attachKnownPlans(state: AppState, now: Date): AppState {
   let next = state;

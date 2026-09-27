@@ -1,5 +1,5 @@
-import { isBrowserDetails } from "./billingRecords";
-import type { Subscription, Workspace, UsageReading } from "./types";
+import { isBillingSchedule } from "./billingSchedule.ts";
+import type { Subscription, Workspace, UsageReading } from "./types.ts";
 
 export const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === "string";
@@ -18,7 +18,8 @@ const optionalCount = (v: unknown) => v == null || (num(v) && Number.isInteger(v
 export function isSubscription(v: unknown): v is Subscription {
   if (!record(v) || !str(v.id) || !str(v.templateId) || !member(providers, v.provider) || !str(v.plan) || !(v.seat === null || str(v.seat)) || !str(v.login) || !str(v.notes)) return false;
   if (!num(v.bankedResets) || !nullableDate(v.bankedResetExpiresAt) || typeof v.supportsBankedResets !== "boolean" || typeof v.readingsKnown !== "boolean" || !date(v.updatedAt) || !member(["seed", "manual", "extension", "live"], v.readingSource)) return false;
-  if (v.browserDetails !== undefined && !isBrowserDetails(v.browserDetails)) return false;
+  if (v.billingSchedule != null && !isBillingSchedule(v.billingSchedule)) return false;
+  if (v.manualBusinessSeat != null && !member(["Standard", "Premium"], v.manualBusinessSeat)) return false;
   if (v.usageCheckedAt !== undefined && !date(v.usageCheckedAt)) return false;
   if (v.billingError !== undefined && (!record(v.billingError) || !date(v.billingError.at) || !str(v.billingError.message) || !v.billingError.message || v.billingError.message.length > 500)) return false;
   if (v.browserSyncError !== undefined && (!record(v.browserSyncError) || !date(v.browserSyncError.at) || !str(v.browserSyncError.message) || !v.browserSyncError.message || v.browserSyncError.message.length > 500)) return false;

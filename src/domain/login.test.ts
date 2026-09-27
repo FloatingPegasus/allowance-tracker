@@ -112,7 +112,7 @@ describe("provider-first setup", () => {
     const account = parseOpenAiSnapshot({ email: "me@example.com", plan_type: "business_premium", rate_limit: { primary_window: { used_percent: 42, limit_window_seconds: 604800, reset_at: 1790871014 } } }, null);
     const next = applyLiveAccount(initial("chatgpt"), "new", account, now);
     const result = next.subscriptions[0];
-    expect(result?.plan).toBe("Business Premium");
+    expect(result?.plan).toBe("Business");
     expect(result?.login).toBe("me@example.com");
     expect(result?.windows.map((window) => window.kind)).toEqual(["weekly"]);
     expect(result?.windows[0]?.usedPercent).toBe(42);
@@ -170,4 +170,16 @@ describe("provider-first setup", () => {
     expect(applyGoReading(state, "new", { windows: [{ kind: "weekly", usedPercent: 101 }] }, now)).toBe(state);
     expect(applyGoReading(state, "new", { windows: [{ kind: "weekly", countUsed: 3 }] }, now)).toBe(state);
   });
+});
+
+it("accepts roles only from an unambiguous matching workspace and never infers a seat", () => {
+  const usage = { account_id: "mine", plan_type: "self_serve_business_prolite" };
+  const row = { id: "mine", structure: "workspace", account_user_role: "account-admin" };
+  expect(parseOpenAiSnapshot(usage, { accounts: [row] }).role).toBe("admin");
+  expect(parseOpenAiSnapshot(usage, { accounts: [{ ...row, id: "other" }] }).role).toBeNull();
+  expect(parseOpenAiSnapshot(usage, { accounts: [row, row] }).role).toBeNull();
+  expect(parseOpenAiSnapshot({ plan_type: "business" }, { accounts: [row] }).role).toBeNull();
+  expect(parseOpenAiSnapshot(usage, { accounts: [{ ...row, account_user_role: "standard" }] }).role).toBeNull();
+  expect(parseOpenAiSnapshot({ ...usage, plan_type: "pro" }, { accounts: [{ ...row, structure: "personal" }] }).role).toBeNull();
+  expect(parseOpenAiSnapshot({ ...usage, plan_type: "business_premium" }, { accounts: [row] }).plan).toBe("Business");
 });

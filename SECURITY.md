@@ -1,37 +1,31 @@
 # Security
 
-Allowance has a loopback local app and a separate owner-only hosted billing backend. Browserbase holds the cloud browser sessions. The hosted backend has been tested locally; public deployment is not yet established. The public repository contains application code and synthetic test fixtures, not browser data.
+Allowance is a single-owner application. It has no public signup, shared tenant database or billing scraper. A public source repository does not make its private server data public; credentials must never be committed or included in container builds.
 
-## Local data
+## Authentication
 
-Account readings and billing records stay in browser localStorage. Provider tokens and OpenCode keys are also stored there, unencrypted. Anyone with access to that browser profile, or malicious code running on the app's origin, may be able to read them. Use a trusted profile and keep the development server bound to loopback.
+Owner passwords use salted scrypt. Login cookies are HttpOnly, SameSite=Strict and, on HTTPS, Secure with the `__Host-` prefix. Only hashes of session tokens are stored. Sessions expire after 30 days; logout revokes the current session and changing the password revokes all previous sessions.
 
-Exports exclude provider sessions and keys, but contain account identifiers, usage, and any synced billing/member records. Treat exports as private. `.gitignore` excludes common environment, database, credential, export, and backup files; this does not replace reviewing staged files before publishing.
+Initial setup requires a random one-time secret generated through the server console. Its hash and 30-minute expiry are stored server-side. A visitor cannot claim an unconfigured app without that secret. The operator can reset owner access through the server console.
 
-## Browser connection
+The API checks the exact configured host. Writes require the same Origin and JSON content type. Login attempts, API requests and provider refreshes are throttled. Bodies are bounded. The production server serves only the built static directory and blocks hidden paths. Provider failures never return raw subprocess output or credentials to the browser.
 
-When `BROWSERBASE_API_KEY` is configured, a selected billing check uses a persistent Browserbase Context. Browserbase holds the site's authenticated browser state; this can grant more access than billing alone. Context mappings are private server files keyed by a hash of the exact email, provider account ID and workspace flag. They are not sent to the frontend or exported. `.env.local`, `.allowance/` and browser-auth artifacts are ignored by Git. Protect the service API key and the private server volume; a public repository does not provide access to either.
+## Data and credentials
 
-Cloud session recordings, logs and automatic CAPTCHA solving are disabled. A short-lived interactive browser URL is returned only to the requesting local origin for sign-in. Treat that URL as sensitive: it can control the active browser. The app never logs or persists it. Expired authentication requires the user to sign in again. Provider access denials and challenges are not bypassed.
+The data directory is mode 0700. SQLite and the app encryption key are mode 0600. The official Codex CLI owns credentials in each isolated `CODEX_HOME`; Claude Code owns credentials in each `CLAUDE_CONFIG_DIR`. Linux CLI credential files are not encrypted by Allowance. Use an encrypted host disk and private backups. Anyone who controls the server account, disk or a full backup may access these logins.
 
-Without cloud configuration, the connector opens an isolated temporary Chrome session for one selected account and does not retain its browser profile. Local transports require a loopback Host and same-origin JSON. The hosted route instead requires the configured HTTPS Host/Origin and an authenticated owner session. An opaque connection ID binds each read to the original account and origin. Only one connection/read runs at a time, and cancellation or expiry discards late results. The browser closes after a read, cancellation, or fourteen minutes. Cloud profiles persist separately; cookies are never exported to the dashboard.
+OpenCode keys use AES-256-GCM with account-bound associated data. The encryption key is stored outside SQLite but on the same volume; this protects a database-only leak, not full server compromise. Nonsecret account readings and billing dates are stored as ordinary SQLite data.
 
-The reader makes GET requests only to ChatGPT, rejects redirects, verifies email and workspace membership, and returns a strict allowlist of tracking fields. Tokens, payment methods and private invoice URLs are excluded. It never changes billing, seats or membership. No extension is installed or required.
+The browser receives account metadata and usage, never provider tokens, profile paths or saved keys. Claude authorization codes submitted during sign-in go directly to the official CLI's stdin. Usage reads initialize the official clients without sending model prompts. The app does not scan local Claude transcripts.
 
-This is an unofficial integration, not an approved OpenAI API. [Individual terms](https://openai.com/policies/row-terms-of-use/) restrict automated extraction; the [Services Agreement](https://openai.com/policies/services-agreement/) also restricts extraction except as permitted through the service. No guarantee against account suspension is made. Billing runs only when requested and respects access failures and browser challenges.
+Each account has a separate profile. Reconnect retains the old profile until the new login returns usage. Disconnect/removal deletes the app's isolated profile; it does not log out another app or promise provider-wide token revocation. Cancelled, failed and expired login profiles are discarded. A process crash can leave an unused profile on disk; keep the volume private.
 
-## Hosted backend
+Reset credits require a confirmation, per-account serialization and a persisted idempotency key. Unknown results retain that key for retry, including after a server restart. Successful outcomes are recorded and followed by a fresh usage read. A failed refresh preserves the previous data with an error.
 
-Do not expose the Vite dev or preview server publicly. The separate Node server starts only with an exact origin, an owner password hash, a 32-byte encryption key and cloud-browser credentials. Account and billing endpoints require owner authorization; the login and health endpoints expose no account data. Writes require same-origin JSON. The server rejects unexpected Host headers, throttles login attempts and cloud-browser launches, and serves files only from the built asset directory.
+Exports contain account identifiers, usage and manual dates, but no credentials or sessions. Imports append disconnected accounts and never import profile paths or keys. Legacy browser data remains untouched; remove old localStorage credentials yourself after confirming migration if you no longer need the retired local build.
 
-Passwords are salted and hashed with scrypt. Random owner session tokens are stored only as hashes, expire after seven days, and are invalidated by logout or a password-hash change. Cookies are HttpOnly and SameSite=Strict, with Secure outside loopback testing. No provider token is imported into the hosted database.
+## Boundaries
 
-SQLite account/billing records are encrypted with AES-256-GCM and an environment-held key. Context mappings remain private files on the same persistent volume. Only one server instance is supported. Keep the volume, cloud API key, encryption key and owner password out of Git, frontend builds, logs and public uploads. Encryption at rest does not protect against a compromised running server with access to its environment. Public source code is compatible with private data; security depends on authorization and secret handling, not hiding code.
+There is no claim of perfect security, an independent penetration test, or permanent provider compatibility. Claude's usage SDK method is experimental. Usage API metadata does not establish the assigned Business seat or workspace role, so the app does not infer them. Expected billing dates do not establish payment or invoice status.
 
-The initial account import is additive and allowlisted. Invalid records fail without replacing existing accounts. Failed billing attempts retain previous successful sections and their timestamps. Browser results from the wrong email or account ID are rejected. The hosted UI does not persist account records or credentials in localStorage.
-
-Before using real hosted records, configure HTTPS and private persistent storage, test backups and restoration, and retain the encryption key separately. To revoke cloud authentication, sign out the cloud profile through the provider or revoke the provider session; disconnecting a local usage token does not revoke a Browserbase profile. No security audit or account-safety guarantee is claimed.
-
-## Reporting
-
-Use GitHub private vulnerability reporting when enabled on the repository. Do not include tokens, exports, member lists, or other private account details in public issues.
+Profiles from the retired Browserbase billing version are managed in Browserbase until separately removed; this build neither uses nor revokes them. Report issues using synthetic data, never personal exports or credentials.

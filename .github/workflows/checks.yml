@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -22,4 +22,8 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
-      - run: npm run build:hosted
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run test:ui
+      - run: docker build -t allowance-private:test .
+      - run: docker run --rm allowance-private:test node_modules/.bin/codex --version
+      - run: docker run --rm allowance-private:test node_modules/.bin/claude --version

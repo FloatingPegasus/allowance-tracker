@@ -1,4 +1,4 @@
-import type { BrowserDetails } from "./billingRecords.ts";
+import type { BillingSchedule } from "./billingSchedule";
 
 export type ProviderId = "codex" | "chatgpt" | "claude" | "opencode";
 
@@ -13,6 +13,8 @@ export type Surface = "agent" | "chat";
 export type OrgRole = "member" | "admin" | "owner";
 
 export type OrgSeat = "Standard" | "Premium" | "Team";
+
+export type BusinessSeat = "Standard" | "Premium";
 
 export interface OrgMember {
   id: string;
@@ -109,11 +111,13 @@ export interface Subscription {
   workspaceId?: string | null;
   providerAccountId?: string | null;
   accountRole?: OrgRole | null;
-  browserDetails?: BrowserDetails;
+  manualBusinessSeat?: BusinessSeat | null;
+  browserDetails?: unknown;
   browserSyncError?: { at: string; message: string };
   billingError?: { at: string; message: string };
   /** Renewal for a personal plan. Workspace invoices live on the workspace. */
   billing?: BillingCycle | null;
+  billingSchedule?: BillingSchedule | null;
 }
 
 export interface AppState {

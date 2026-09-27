@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { BillingPanel, type BillingActions } from "./BillingPanel";
+import { BillingDate } from "./BillingDate";
+import type { BillingSchedule } from "../domain/billingSchedule";
+import { isChatGptBusiness } from "../domain/businessSeat";
 import { ProviderLogin } from "./ProviderLogin";
 import { meterTone, remainingLabel, remainingPercent, seatLine } from "../domain/format";
 import { countdown, resetStamp } from "../domain/time";
 import { checkedAgo, usageStatus } from "../domain/usageStatus";
-import type { QuotaWindow, Subscription, Workspace } from "../domain/types";
+import type { BusinessSeat, QuotaWindow, Subscription, Workspace } from "../domain/types";
 import type { AppLogin, AppLoginProvider } from "../domain/sessions";
 
 interface Props {
@@ -21,7 +23,8 @@ interface Props {
   loginProvider: AppLoginProvider | null;
   signedIn: AppLogin | null;
   authError: string | null;
-  billingActions?: BillingActions;
+  onBillingChange: (schedule: BillingSchedule | null) => void;
+  onSeatChange: (seat: BusinessSeat | null) => void;
   onSignIn: () => void;
   onRefreshLogin: () => void;
   onSignOut: () => void;
@@ -31,7 +34,7 @@ export function AccountCard({
   subscription, now, onRemove, apiKeyHint, syncing, keyError,
   onConnectKey, onRefreshKey, onDisconnectKey, workspace,
   loginProvider, signedIn, authError, onSignIn, onRefreshLogin,
-  onSignOut, billingActions,
+  onSignOut, onBillingChange, onSeatChange,
 }: Props) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const connected = signedIn != null || apiKeyHint != null;
@@ -39,6 +42,7 @@ export function AccountCard({
   const hasReading = subscription.readingsKnown && subscription.windows.length > 0;
   const checkedAt = subscription.readingSource === "live" ? subscription.usageCheckedAt : undefined;
   const openai = subscription.provider === "chatgpt" || subscription.provider === "codex";
+  const business = isChatGptBusiness(subscription);
 
   return (
     <article id={`seat-${subscription.id}`} className="card" data-provider={subscription.provider} aria-labelledby={`account-${subscription.id}`}>
@@ -46,10 +50,11 @@ export function AccountCard({
         <h3 id={`account-${subscription.id}`}>
           <i className={`mark mark-${subscription.provider}`} aria-hidden="true" />
           {seatLine(subscription.provider, "", null)}
-          {subscription.plan && <span className="account-plan">{subscription.plan}</span>}
+          {subscription.plan && <span className="account-plan">{subscription.plan === "Business Premium" ? "Business" : subscription.plan}</span>}
         </h3>
         <p className="account-login">{signedIn?.email ?? subscription.login}</p>
         {workspace && <p className="hint workspace-name">{workspace.name}</p>}
+        {business && subscription.manualBusinessSeat && <p className="hint">{subscription.manualBusinessSeat} seat · Manual</p>}
         <p className={`sync-status ${status === "Synced" ? "synced" : ""}`}>{status}</p>
         {loginProvider && <ProviderLogin
           provider={loginProvider}
@@ -65,21 +70,26 @@ export function AccountCard({
         />}
       </div>
       <div className="card-body">
-        <p className="usage-heading">{openai ? "Codex allowance remaining" : "Allowance remaining"}</p>
+        <p className="usage-heading">{openai ? "Codex usage" : "Usage"}</p>
         <div className="meters">
           {hasReading ? subscription.windows.map((window) => <Meter key={window.kind} window={window} now={now} />)
-            : <p className="empty">{connected ? "No usage reported. Try refreshing." : "Connect to see your allowance."}</p>}
+            : <p className="empty">{connected ? "No usage reported" : "No saved usage"}</p>}
         </div>
-        {checkedAt && <p className="hint"><time dateTime={checkedAt} title={new Date(checkedAt).toLocaleString()}>{checkedAgo(checkedAt, now)}</time>{status !== "Synced" && hasReading ? " · Showing last saved usage" : ""}</p>}
-        {hasReading && !checkedAt && <p className="hint">Saved reading · not verified by a current provider check</p>}
+        {checkedAt && <p className="hint"><time dateTime={checkedAt} title={new Date(checkedAt).toLocaleString()}>{checkedAgo(checkedAt, now)}</time>{status !== "Synced" && hasReading ? " · Last saved usage" : ""}</p>}
+        {hasReading && !checkedAt && <p className="hint">Unverified reading</p>}
       </div>
+      <BillingDate schedule={subscription.billingSchedule ?? null} now={now} onChange={onBillingChange} />
       <details className="account-details">
         <summary>Account details</summary>
-        {subscription.accountRole && <p className="hint">Workspace role: {subscription.accountRole}</p>}
-        {openai && <details className="billing-details">
-          <summary>Billing & workspace</summary>
-          <BillingPanel subscription={subscription} workspace={workspace} {...billingActions} />
-        </details>}
+        {workspace && subscription.accountRole && subscription.readingSource === "live" && <p className="hint">Workspace role: {subscription.accountRole}</p>}
+        {business && <div className="seat-choice">
+          <label htmlFor={`business-seat-${subscription.id}`}>Business seat (manual)</label>
+          <select id={`business-seat-${subscription.id}`} value={subscription.manualBusinessSeat ?? ""} onChange={(event) => onSeatChange(event.target.value === "Standard" || event.target.value === "Premium" ? event.target.value : null)}>
+            <option value="">Not set</option>
+            <option value="Standard">Standard</option>
+            <option value="Premium">Premium</option>
+          </select>
+        </div>}
         <div className="card-actions">
           {connected && <button type="button" disabled={syncing} onClick={signedIn ? onSignOut : onDisconnectKey}>Disconnect</button>}
           {confirmRemove ? <>
@@ -122,7 +132,7 @@ function Meter({ window, now }: { window: QuotaWindow; now: Date }) {
       </div>
       <span className="num meter-when">{window.resetsAt ? `Resets ${resetStamp(window.resetsAt, now)}` : "Reset not reported"}</span>
       {window.status && window.status !== "ok" && <span className="due">{statusLabel(window.status)}</span>}
-      {due && <span className="due">Reset time passed. Refresh usage.</span>}
+      {due && <span className="due">Reset due · Refresh usage</span>}
     </div>
   );
 }
@@ -183,7 +193,6 @@ function GoKey({
           <button type="submit" className="solid" disabled={syncing || draft.trim().length === 0}>
             {syncing ? "Reading…" : "Track"}
           </button>
-          <p className="hint">Reads the 5-hour, weekly, and monthly bars. The key stays in this browser.</p>
         </>
       )}
       {error && <p className="error">{error}</p>}

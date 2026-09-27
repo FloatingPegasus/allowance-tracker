@@ -1,7 +1,7 @@
-import { attachKnownPlans } from "./org";
-import type { AppState, Intent } from "./types";
+import { attachKnownPlans } from "./org.ts";
+import type { AppState, Intent } from "./types.ts";
 
-import { isSubscription, isWorkspace, uniqueIds } from "./validate";
+import { isSubscription, isWorkspace, uniqueIds } from "./validate.ts";
 
 const KEY = "allowance-tracker/v1";
 

@@ -1,3 +1,17 @@
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-SemiBold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
   --bg: #f5f6f4;
@@ -8,13 +22,15 @@
   --ok: #2a6a48;
   --warn: #9a5b12;
   --hot: #9d2f24;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-synthesis: none;
   color: var(--ink);
   background: var(--bg);
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; }
-button, input { font: inherit; color: inherit; }
+body { margin: 0; min-height: 100vh; font-size: .875rem; line-height: 1.5; }
+h1, h2, h3, strong { font-weight: 600; }
+button, input, select { font: inherit; color: inherit; }
 button, .file {
   background: transparent;
   border: 1px solid var(--line);
@@ -33,13 +49,6 @@ summary { cursor: pointer; width: fit-content; }
 .top { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; padding-bottom: 1.1rem; border-bottom: 1px solid var(--line); }
 .eyebrow { margin: 0; font-size: 1.35rem; letter-spacing: -.04em; }
 .top > h1 { margin: 0; font-size: 1.35rem; }
-.owner-login { max-width: 25rem; padding-top: 12vh; }
-.owner-login h1 { font-size: 1.6rem; }
-.owner-login form { display: grid; gap: .65rem; margin-top: 1.5rem; }
-.owner-login input { width: 100%; padding: .65rem; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); }
-.owner-login button { margin-top: .3rem; background: var(--ink); color: white; }
-.card-body > .org { border: 0; margin: 0; padding: 0; }
-.ledger + .data-tools { margin-top: 1.2rem; }
 .local-tag { display: inline-block; margin-left: 1rem; font-size: .75rem; color: var(--muted); letter-spacing: 0; font-weight: 400; }
 .data-tools { font-size: .85rem; }
 .top-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .8rem; }
@@ -47,7 +56,7 @@ summary { cursor: pointer; width: fit-content; }
 .file input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 .file:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
 .notice { margin: 1rem 0; padding: .65rem .8rem; background: #f3e7c8; border: 1px solid #e2cf9c; }
-.hint, .empty, footer { color: var(--muted); line-height: 1.45; }
+.hint, .empty { color: var(--muted); line-height: 1.45; }
 .hint { margin: .35rem 0 0; font-size: .85rem; }
 .error { color: var(--hot); font-size: .85rem; overflow-wrap: anywhere; }
 .ledger { margin-top: 1.5rem; }
@@ -70,7 +79,7 @@ summary { cursor: pointer; width: fit-content; }
 .usage-heading { margin: 0 0 .75rem; font-size: .8rem; font-weight: 600; }
 .meters { display: grid; gap: .75rem; }
 .empty { margin: 0; font-size: .9rem; }
-.meter { display: grid; grid-template-columns: 5rem 5rem minmax(3rem, 1fr); gap: .35rem .7rem; align-items: center; }
+.meter { display: grid; grid-template-columns: 5rem 6rem minmax(3rem, 1fr); gap: .35rem .7rem; align-items: center; }
 .meter-label { color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; }
 .meter-value { font-weight: 600; }
@@ -83,25 +92,7 @@ summary { cursor: pointer; width: fit-content; }
 .account-details { grid-column: 1 / -1; font-size: .85rem; }
 .account-details > summary { color: var(--muted); }
 .account-details[open] { border-top: 1px solid var(--line); padding-top: .8rem; }
-.billing-details { margin-top: .8rem; }
 .card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .85rem; }
-.org { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--line); }
-.org-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; align-items: center; }
-.org h4 { margin: 0; font-size: 1rem; }
-.account-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; margin: 1rem 0; }
-.account-facts dt { color: var(--muted); font-size: .78rem; }
-.account-facts dd { margin: .2rem 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
-.management-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: .9rem; }
-.table-scroll { overflow-x: auto; }
-.org-table { width: 100%; margin-top: .7rem; border-collapse: collapse; font-size: .88rem; }
-.org-table caption { text-align: left; color: var(--muted); padding-bottom: .3rem; }
-.org-table th, .org-table td { text-align: left; padding: .3rem .4rem .3rem 0; border-bottom: 1px solid var(--line); font-weight: 500; overflow-wrap: anywhere; }
-.org-table th { color: var(--muted); font-size: .8rem; }
-.member-name { display: block; font-weight: 600; }
-.last-attempt { display: block; }
-.invoice-date { display: block; font-size: .75rem; }
-.billing-history { margin-top: .8rem; font-size: .85rem; }
-.billing-history > summary { color: var(--muted); }
 .key-row { margin-top: .85rem; }
 .key-row input { width: 100%; background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: .5rem; margin: .3rem 0; }
 .key-row label { display: block; font-size: .85rem; }
@@ -112,15 +103,41 @@ summary { cursor: pointer; width: fit-content; }
 .provider-choices span { color: var(--muted); font-size: .85rem; }
 .add-account { margin: 1rem 0; font-size: .9rem; }
 .add-account .connect { margin: 1rem 0; }
-footer { margin-top: 1.5rem; font-size: .8rem; }
 @media (max-width: 700px) {
   .top { align-items: start; }
   .local-tag { display: block; margin: .35rem 0 0; }
   .card { grid-template-columns: 1fr; padding: 1rem; }
   .provider-choices { grid-template-columns: 1fr; gap: .6rem; }
   .provider-choices button { grid-template-columns: 1fr auto; align-items: center; }
-  .meter { grid-template-columns: 4.5rem 4.5rem minmax(3rem, 1fr); }
+  .meter { grid-template-columns: 4.5rem 6rem minmax(3rem, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
 }
+
+.billing-date { grid-column: 1 / -1; font-size: .85rem; }
+.billing-summary { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1rem; }
+.billing-summary p { margin: 0; }
+.billing-summary strong { margin-left: .5rem; font-weight: 600; }
+.billing-summary .hint { display: block; margin-top: .25rem; font-size: .8rem; }
+.text-button { padding: .3rem 0; border: 0; text-decoration: underline; text-underline-offset: 3px; color: var(--muted); }
+.billing-date form { padding-top: .8rem; border-top: 1px solid var(--line); }
+.billing-date label { display: block; margin-bottom: .5rem; }
+.billing-fields { display: flex; flex-wrap: wrap; gap: .5rem; }
+.billing-fields input, .billing-fields select, .seat-choice select { min-width: 0; max-width: 100%; padding: .4rem .6rem; border: 1px solid var(--line); background: var(--raised); border-radius: 4px; }
+.seat-choice { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .8rem; color: var(--muted); }
+.login-shell { width: min(360px, calc(100% - 3rem)); margin: 18vh auto 3rem; }
+.login-shell h1 { font-size: 1.5rem; margin-bottom: 2rem; }
+.login-shell form { display: grid; gap: .75rem; }
+.login-shell input { min-width: 0; padding: .65rem; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); }
+.notice { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.notice button { padding: 0 .4rem; }
+.app-settings { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); }
+.password-settings { margin-top: 1rem; max-width: 360px; }
+.sign-in-prompt { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+.device-code { font-size: 1.25rem; letter-spacing: .08em; }
+.reset-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); font-size: .8rem; }
+.reset-row .hint { margin: 0; }
+.reset-row .card-actions { margin: 0; }
+.meter-label { overflow-wrap: anywhere; }
+.billing-control { grid-column: 1 / -1; min-width: 0; margin: 0; padding: 0; border: 0; }

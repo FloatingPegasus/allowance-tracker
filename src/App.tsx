@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AddAccount } from "./components/AddAccount";
 import { AccountCard } from "./components/AccountCard";
-import { BillingConnectionError, closeBillingBrowser, openBillingBrowser, readBillingBrowser } from "./domain/billingClient";
-import { applyBillingFailure, applyBillingRecord, type BillingTarget } from "./domain/billingRecords";
 import { beginLogin, clearPending, fetchLiveAccount, finishLogin, loadPending, matchesCallback, refreshLogin } from "./domain/appLoginClient";
 import { applyLiveAccount, applyGoReading, createProviderAccount } from "./domain/applyLogin";
 import type { ConnectProvider } from "./domain/applyLogin";
@@ -13,9 +11,7 @@ import { fetchGoUsage, maskKey } from "./domain/opencode";
 import { loadSessions, saveSessions } from "./domain/sessions";
 import type { AppLogin, AppLoginProvider } from "./domain/sessions";
 import { loadState, parseState, saveState, storageProblem } from "./domain/storage";
-import type { AppState, ProviderId, Subscription } from "./domain/types";
-
-interface BillingRequest { subscriptionId: string; target: BillingTarget; connectionId: string | null; mode?: "local" | "cloud"; loginUrl?: string; expiresAt?: number; stage: "starting" | "login" | "reading" }
+import type { AppState, ProviderId } from "./domain/types";
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => loadState());
@@ -32,10 +28,8 @@ export default function App() {
   const activeSyncs = useRef(new Set<string>());
   const keysRef = useRef(keys);
   const sessionsRef = useRef(sessions);
-  const syncSessionRef = useRef<(id: string, login: AppLogin, announce: boolean) => Promise<void>>(async () => undefined);
+  const syncSessionRef = useRef<(id: string, login: AppLogin) => Promise<void>>(async () => undefined);
   const [connecting, setConnecting] = useState(false);
-  const [billingRequest, setBillingRequest] = useState<BillingRequest | null>(null);
-  const billingRef = useRef<BillingRequest | null>(null);
   const visibleAccounts = state.subscriptions.filter((item) => item.readingSource !== "seed");
 
   useEffect(() => {
@@ -57,7 +51,7 @@ export default function App() {
     setSessions(next);
   }
 
-  async function syncSession(id: string, login: AppLogin, announce: boolean) {
+  async function syncSession(id: string, login: AppLogin) {
     if (activeSyncs.current.has(id)) return;
     activeSyncs.current.add(id);
     const original = sessionsRef.current[id];
@@ -80,11 +74,7 @@ export default function App() {
       setNow(checkedAt);
       setState((current) => applyLiveAccount(current, id, account, checkedAt));
       setAuthError((current) => ({ ...current, [id]: "" }));
-      if (announce) {
-        const who = account.email ?? fresh.email ?? "that seat";
-        const providerName = login.provider === "openai" ? "ChatGPT" : "Claude";
-        setNotice(account.windows.length > 0 ? `Updated ${who} from ${providerName}.` : `Signed in as ${who}. That account didn't report usage bars.`);
-      }
+
     } catch (error) {
       const message = error instanceof Error ? error.message : "Usage could not be read.";
       setAuthError((current) => ({ ...current, [id]: message }));
@@ -109,7 +99,7 @@ export default function App() {
 
   useEffect(() => {
     let cancel = false;
-    async function pull(id: string, apiKey: string, announce: boolean) {
+    async function pull(id: string, apiKey: string) {
       setSyncing((current) => ({ ...current, [id]: true }));
       try {
         const reading = await fetchGoUsage(apiKey, "");
@@ -122,7 +112,6 @@ export default function App() {
           return applyGoReading(current, id, reading, checkedAt);
         });
         setKeyError((current) => ({ ...current, [id]: "" }));
-        if (announce) setNotice("OpenCode usage updated.");
       } catch (error) {
         if (cancel) return;
         const message = error instanceof Error ? error.message : "OpenCode usage could not be read.";
@@ -133,7 +122,7 @@ export default function App() {
     }
 
     async function pullAll() {
-      await Promise.all(Object.entries(keysRef.current).map(([id, apiKey]) => pull(id, apiKey, false)));
+      await Promise.all(Object.entries(keysRef.current).map(([id, apiKey]) => pull(id, apiKey)));
     }
 
     void pullAll();
@@ -147,7 +136,7 @@ export default function App() {
   useEffect(() => {
     let cancel = false;
     async function pullSaved() {
-      await Promise.all(Object.entries(sessionsRef.current).map(([id, login]) => syncSessionRef.current(id, login, false)));
+      await Promise.all(Object.entries(sessionsRef.current).map(([id, login]) => syncSessionRef.current(id, login)));
     }
     if (window.location.pathname === "/auth/done" && !redirectTask.current) {
       const params = new URLSearchParams(window.location.search);
@@ -190,82 +179,6 @@ export default function App() {
   function patch(id: string, update: Parameters<typeof mapSubscription>[2]) {
     setState((current) => mapSubscription(current, id, update));
   }
-
-  function billingFailure(request: BillingRequest, error: unknown) {
-    const message = error instanceof Error ? error.message : "Billing could not be read.";
-    setState((current) => applyBillingFailure(current, request.target, message, new Date()));
-  }
-
-  async function startBilling(subscription: Subscription) {
-    if (billingRef.current || !subscription.providerAccountId || sessionsRef.current[subscription.id]?.provider !== "openai") return;
-    const request: BillingRequest = { subscriptionId: subscription.id, target: { accountId: subscription.providerAccountId, email: subscription.login, workspace: !!subscription.workspaceId }, connectionId: null, stage: "starting" };
-    billingRef.current = request;
-    setBillingRequest({ ...request });
-    patch(subscription.id, (item) => ({ ...item, billingError: undefined }));
-    try {
-      const connection = await openBillingBrowser(request.target);
-      Object.assign(request, connection);
-      if (billingRef.current !== request) { await closeBillingBrowser(connection.connectionId).catch(() => undefined); return; }
-      request.stage = "login";
-      setBillingRequest({ ...request });
-      if (request.mode === "cloud") await finishBilling();
-    } catch (error) {
-      if (billingRef.current !== request) return;
-      billingFailure(request, error);
-      billingRef.current = null;
-      setBillingRequest(null);
-    }
-  }
-
-  async function finishBilling() {
-    const request = billingRef.current;
-    if (!request?.connectionId || request.stage !== "login") return;
-    request.stage = "reading";
-    setBillingRequest({ ...request });
-    try {
-      const details = await readBillingBrowser(request.connectionId);
-      if (billingRef.current !== request) return;
-      setState((current) => sessionsRef.current[request.subscriptionId] ? applyBillingRecord(current, details) : current);
-      billingRef.current = null;
-      setBillingRequest(null);
-    } catch (error) {
-      if (billingRef.current !== request) return;
-      billingFailure(request, error);
-      if (error instanceof BillingConnectionError && error.ended) {
-        void closeBillingBrowser(request.connectionId).catch(() => undefined);
-        billingRef.current = null;
-        setBillingRequest(null);
-      } else {
-        request.stage = "login";
-        setBillingRequest({ ...request });
-      }
-    }
-  }
-
-  function cancelBilling(subscriptionId?: string) {
-    const request = billingRef.current;
-    if (!request || (subscriptionId && subscriptionId !== request.subscriptionId)) return;
-    billingRef.current = null;
-    setBillingRequest(null);
-    if (request.connectionId) void closeBillingBrowser(request.connectionId).catch(() => setNotice("The billing browser could not be closed. Its session expires after fourteen minutes."));
-  }
-
-  useEffect(() => () => {
-    const id = billingRef.current?.connectionId;
-    billingRef.current = null;
-    if (id) void closeBillingBrowser(id).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!billingRequest?.expiresAt) return;
-    const timer = window.setTimeout(() => {
-      const request = billingRef.current;
-      if (!request || request.connectionId !== billingRequest.connectionId) return;
-      billingFailure(request, new Error("The sign-in window expired. Fetch billing to open a new one."));
-      cancelBilling();
-    }, Math.max(0, billingRequest.expiresAt - Date.now()));
-    return () => window.clearTimeout(timer);
-  }, [billingRequest]);
 
   function loginProvider(provider: ProviderId): AppLoginProvider | null {
     if (provider === "claude") return "claude";
@@ -310,7 +223,6 @@ export default function App() {
         return;
       }
       if (!window.confirm("Replace the tracked accounts with this export? Existing provider connections will be disconnected.")) return;
-      cancelBilling();
       keysRef.current = {};
       sessionsRef.current = {};
       setKeys({}); setSessions({}); saveKeys({}); saveSessions({});
@@ -327,7 +239,7 @@ export default function App() {
     <div className="wrap">
       <header className="top">
         <div>
-          <h1 className="eyebrow">Allowance<span className="local-tag">Stored in this browser</span></h1>
+          <h1 className="eyebrow">Allowance<span className="local-tag">Local</span></h1>
         </div>
         <details className="data-tools"><summary>Data & backups</summary><div className="top-actions">
           <button
@@ -366,29 +278,19 @@ export default function App() {
       )}
       <main>
       {visibleAccounts.length ? <details className="add-account"><summary>Add account</summary><AddAccount onAdd={addProvider} busy={connecting} /></details> : <AddAccount onAdd={addProvider} busy={connecting} />}
-      <section className="ledger" aria-label="Subscriptions">
+      {visibleAccounts.length > 0 && <section className="ledger" aria-label="Subscriptions">
         <div className="ledger-head">
           <h2>Your accounts</h2>
-          <p className="hint">Refreshes every minute while open</p>
+          <p className="hint">Auto-refresh · 1 min</p>
         </div>
-        {visibleAccounts.length === 0 && <p className="empty">Connect a provider above to see your usage here.</p>}
         {visibleAccounts.map((subscription) => (
           <AccountCard
             key={subscription.id}
             subscription={subscription}
             now={now}
-            billingActions={{
-              busy: !!billingRequest,
-              stage: billingRequest?.subscriptionId === subscription.id ? billingRequest.stage : undefined,
-              mode: billingRequest?.subscriptionId === subscription.id ? billingRequest.mode : undefined,
-              loginUrl: billingRequest?.subscriptionId === subscription.id ? billingRequest.loginUrl : undefined,
-              expiresAt: billingRequest?.subscriptionId === subscription.id ? billingRequest.expiresAt : undefined,
-              onStart: subscription.providerAccountId && sessions[subscription.id]?.provider === "openai" ? () => void startBilling(subscription) : undefined,
-              onRead: () => void finishBilling(),
-              onCancel: () => cancelBilling(subscription.id),
-            }}
+            onBillingChange={(billingSchedule) => patch(subscription.id, (item) => ({ ...item, billingSchedule }))}
+            onSeatChange={(manualBusinessSeat) => patch(subscription.id, (item) => ({ ...item, manualBusinessSeat }))}
             onRemove={() => {
-              cancelBilling(subscription.id);
               setState((current) => ({
                 ...current,
                 subscriptions: current.subscriptions.filter((item) => item.id !== subscription.id),
@@ -423,7 +325,6 @@ export default function App() {
                     applyGoReading(current, subscription.id, reading, checkedAt),
                   );
                   setKeyError((current) => ({ ...current, [subscription.id]: "" }));
-                  setNotice(`Updated ${subscription.login} from OpenCode.`);
                 })
                 .catch((error: unknown) => {
                   const message = error instanceof Error ? error.message : "OpenCode usage could not be read.";
@@ -443,7 +344,6 @@ export default function App() {
                     applyGoReading(current, subscription.id, reading, checkedAt),
                   );
                   setKeyError((current) => ({ ...current, [subscription.id]: "" }));
-                  setNotice(`Updated ${subscription.login} from OpenCode.`);
                 })
                 .catch((error: unknown) => {
                   const message = error instanceof Error ? error.message : "OpenCode usage could not be read.";
@@ -458,7 +358,6 @@ export default function App() {
                 saveKeys(next);
                 return next;
               });
-              setNotice(`Stopped tracking ${subscription.login}.`);
             }}
             workspace={(state.workspaces ?? []).find((item) => item.id === subscription.workspaceId) ?? null}
             loginProvider={loginProvider(subscription.provider)}
@@ -477,10 +376,9 @@ export default function App() {
             }}
             onRefreshLogin={() => {
               const login = sessionsRef.current[subscription.id];
-              if (login) void syncSession(subscription.id, login, true);
+              if (login) void syncSession(subscription.id, login);
             }}
             onSignOut={() => {
-              cancelBilling(subscription.id);
               setSessions((current) => {
                 const next = { ...current };
                 delete next[subscription.id];
@@ -488,16 +386,12 @@ export default function App() {
                 saveSessions(next);
                 return next;
               });
-              setNotice(`Signed out of ${subscription.login}. The last reading is saved.`);
             }}
           />
         ))}
 
-      </section>
+      </section>}
       </main>
-      <footer>
-        <p>Usage credentials stay in this browser. Connected billing profiles stay with the browser service. Credentials are excluded from exports.</p>
-      </footer>
     </div>
   );
 }

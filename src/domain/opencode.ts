@@ -1,4 +1,4 @@
-import type { UsageReading, WindowKind } from "./types";
+import type { UsageReading, WindowKind } from "./types.ts";
 
 const USAGE_URL = "/api/opencode/usage";
 

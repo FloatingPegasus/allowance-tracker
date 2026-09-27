@@ -1,22 +1,28 @@
 {
   "name": "allowance_tracker",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build --config vite.server.config.ts",
-    "build:hosted": "tsc -b && vite build --mode hosted && vite build --config vite.server.config.ts",
-    "start": "node --env-file-if-exists=.env.local dist-server/hosted.mjs",
+    "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "preview": "vite preview"
+    "test:ui": "node --import tsx scripts/check-private-ui.mjs",
+    "preview": "vite preview",
+    "start": "node --env-file-if-exists=.env.local --import tsx server/main.ts",
+    "setup": "node --env-file-if-exists=.env.local --import tsx scripts/setup-owner.ts"
   },
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
-    "playwright-core": "^1.63.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.283",
+    "@anthropic-ai/claude-code": "2.1.274",
+    "@openai/codex": "0.157.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "tsx": "4.20.6"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
@@ -24,6 +30,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "playwright-core": "^1.63.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

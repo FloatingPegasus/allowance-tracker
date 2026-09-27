@@ -151,7 +151,7 @@ function failureMessage(status: number, text: string): string {
   return `The provider rejected the sign-in (${status}).`;
 }
 
-async function exchange(provider: Provider, body: unknown): Promise<{ status: number; payload: unknown }> {
+export async function exchange(provider: Provider, body: unknown): Promise<{ status: number; payload: unknown }> {
   const code = field(body, "code");
   const redirectUri = field(body, "redirectUri");
   const verifier = field(body, "verifier");
@@ -194,7 +194,7 @@ async function exchange(provider: Provider, body: unknown): Promise<{ status: nu
   return { status: 200, payload: tokens };
 }
 
-async function refresh(provider: Provider, refreshToken: string): Promise<{ status: number; payload: unknown }> {
+export async function refresh(provider: Provider, refreshToken: string): Promise<{ status: number; payload: unknown }> {
   if (!refreshToken) return { status: 400, payload: { error: "Sign in again to refresh this seat." } };
   if (provider === "openai") {
     const form = new URLSearchParams({
@@ -225,7 +225,7 @@ async function refresh(provider: Provider, refreshToken: string): Promise<{ stat
   return { status: 200, payload: tokens };
 }
 
-async function usage(provider: Provider, accessToken: string, accountId: string): Promise<{ status: number; payload: unknown }> {
+export async function usage(provider: Provider, accessToken: string, accountId: string): Promise<{ status: number; payload: unknown }> {
   if (!accessToken) return { status: 400, payload: { error: "Sign in again to read usage." } };
   if (provider === "openai") {
     const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, Accept: "application/json" };
